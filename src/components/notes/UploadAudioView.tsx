@@ -280,6 +280,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     geminiApiKey,
     tinfoilApiKey,
     deepgramApiKey,
+    elevenlabsApiKey,
     assemblyaiApiKey,
     customTranscriptionApiKey,
   } = apiKeys;
@@ -447,6 +448,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
                 geminiApiKey,
                 tinfoilApiKey,
                 deepgramApiKey,
+                elevenlabsApiKey,
                 assemblyaiApiKey,
                 customTranscriptionApiKey,
               })
@@ -488,6 +490,7 @@ export default function UploadAudioView({ onNoteCreated, onOpenSettings }: Uploa
     geminiApiKey,
     tinfoilApiKey,
     deepgramApiKey,
+    elevenlabsApiKey,
     assemblyaiApiKey,
     customTranscriptionApiKey,
     cortiClientId,

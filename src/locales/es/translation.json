@@ -2717,7 +2717,9 @@
         "deepgram_nova_3": "El modelo en tiempo real más preciso de Deepgram",
         "assemblyai_universal_streaming_english": "Transcripciones en tiempo real inmutables, en inglés",
         "assemblyai_universal_streaming_multilingual": "Transcripciones en tiempo real inmutables, multilingües",
-        "assemblyai_universal_3_5_pro": "Máxima precisión en tiempo real, 18 idiomas"
+        "assemblyai_universal_3_5_pro": "Máxima precisión en tiempo real, 18 idiomas",
+        "elevenlabs_scribe_v2": "Scribe v2",
+        "elevenlabs_scribe_v2_realtime": "Scribe v2 Realtime"
       },
       "cloud": {
         "openai_gpt_5_2": "Modelo fuerte de razonamiento",

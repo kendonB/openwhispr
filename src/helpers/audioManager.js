@@ -496,6 +496,22 @@ const STREAMING_PROVIDERS = {
     onError: (cb) => window.electronAPI.onGeminiError(cb),
     onSessionEnd: (cb) => window.electronAPI.onGeminiSessionEnd(cb),
   },
+  elevenlabs: {
+    requiresSuccessfulStop: true,
+    awaitsFinalTranscript: true,
+    finalCeilingMs: 8000,
+    preferStopTranscript: true,
+    warmup: (opts) => window.electronAPI.elevenlabsStreamingWarmup(opts),
+    start: (opts) => window.electronAPI.elevenlabsStreamingStart(opts),
+    send: (buf) => window.electronAPI.elevenlabsStreamingSend(buf),
+    finalize: () => window.electronAPI.elevenlabsStreamingFinalize(),
+    stop: () => window.electronAPI.elevenlabsStreamingStop(),
+    status: () => window.electronAPI.elevenlabsStreamingStatus(),
+    onPartial: (cb) => window.electronAPI.onElevenLabsPartialTranscript(cb),
+    onFinal: (cb) => window.electronAPI.onElevenLabsFinalTranscript(cb),
+    onError: (cb) => window.electronAPI.onElevenLabsError(cb),
+    onSessionEnd: (cb) => window.electronAPI.onElevenLabsSessionEnd(cb),
+  },
   corti: {
     warmup: (opts) => window.electronAPI.cortiStreamingWarmup(opts),
     start: (opts) => window.electronAPI.cortiStreamingStart(opts),
@@ -537,6 +553,16 @@ const MANAGED_TRANSCRIPTION_SPEC = {
 };
 
 const PROXY_TRANSCRIPTION_PROVIDERS = {
+  elevenlabs: {
+    displayName: "ElevenLabs",
+    ipc: () => window.electronAPI?.proxyElevenLabsTranscription,
+    buildPayload: ({ audioBuffer, language, mimeType }) => ({
+      audioBuffer,
+      language,
+      contentType: mimeType,
+      fileName: `audio.${audioExtensionForMime(mimeType)}`,
+    }),
+  },
   tinfoil: {
     displayName: "Tinfoil",
     ipc: () => window.electronAPI?.proxyTinfoilTranscription,
@@ -2738,6 +2764,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         err.code = "API_KEY_MISSING";
         throw err;
       }
+    } else if (provider === "elevenlabs") {
+      // The main-process proxy resolves the saved key and reports keyed errors.
+      apiKey = null;
     } else if (provider === "corti") {
       // Tokens are minted in the main process; only verify credentials exist here
       let clientId = s.cortiClientId;
@@ -4778,6 +4807,14 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return route === "orukeet" && Boolean(isSignedInOverride ?? s.isSignedIn);
     }
 
+    if (s.cloudTranscriptionProvider === "elevenlabs") {
+      return (
+        s.cloudTranscriptionMode === "byok" &&
+        s.cloudTranscriptionModel === "scribe_v2_realtime" &&
+        !!s.elevenlabsApiKey
+      );
+    }
+
     // Corti (BYOK) streams over its own WSS — independent of OpenWhispr Cloud.
     if (s.cloudTranscriptionProvider === "corti" && s.cloudTranscriptionMode === "byok") {
       return !!(s.cortiClientId && s.cortiClientSecret);
@@ -5845,15 +5882,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     });
     const tTerminate = performance.now();
 
-    finalText =
-      (provider.preferStopTranscript && stopResult?.text) || this.streamingFinalText || "";
+    const unconfirmedStream = provider.requiresSuccessfulStop && stopResult?.success !== true;
+    if (unconfirmedStream) this._streamingFailoverReason = "stream_no_final";
+    finalText = provider.requiresSuccessfulStop
+      ? stopResult?.success === true
+        ? stopResult.text || ""
+        : ""
+      : (provider.preferStopTranscript && stopResult?.text) || this.streamingFinalText || "";
 
-    if (!finalText && this.streamingPartialText) {
+    if (!provider.requiresSuccessfulStop && !finalText && this.streamingPartialText) {
       finalText = this.streamingPartialText;
       logger.debug("Using partial text as fallback", { textLength: finalText.length }, "streaming");
     }
 
-    if (!finalText && stopResult?.text) {
+    if (!provider.requiresSuccessfulStop && !finalText && stopResult?.text) {
       finalText = stopResult.text;
       logger.debug(
         "Using disconnect result text as fallback",
@@ -6218,6 +6260,16 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         );
       }
     };
+    if (unconfirmedStream && !fallbackBlob?.size) {
+      failBatchFallback(
+        stopResult?.error
+          ? errorFromIpcResult(stopResult)
+          : providerError(PROVIDER_ERROR_CODES.NO_RESPONSE, {
+              provider: "ElevenLabs",
+              surface: "transcription",
+            })
+      );
+    }
     if (
       !finalText &&
       (failoverReason ? !failoverSilent : !finalAcknowledged && durationSeconds > 2) &&

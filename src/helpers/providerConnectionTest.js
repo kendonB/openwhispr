@@ -1,4 +1,5 @@
 const ENDPOINTS = {
+  elevenlabs: "https://api.elevenlabs.io/v1/single-use-token/realtime_scribe",
   openai: "https://api.openai.com/v1/models",
   groq: "https://api.groq.com/openai/v1/models",
   xai: "https://api.x.ai/v1/models",
@@ -227,6 +228,8 @@ function resolveProviderRequest(config) {
     if (provider === "anthropic") {
       headers["x-api-key"] = apiKey;
       headers["anthropic-version"] = "2023-06-01";
+    } else if (provider === "elevenlabs") {
+      headers["xi-api-key"] = apiKey;
     } else if (provider === "gemini") {
       headers["x-goog-api-key"] = apiKey;
     } else if (provider === "deepgram") {
@@ -417,6 +420,25 @@ async function testProviderConnection(
 
   const provider = String(config?.provider || "").toLowerCase();
   if (provider === "deepgram") return testDeepgramKey(request, fetchImpl);
+  if (provider === "elevenlabs") {
+    // Check STT access without uploading audio or spending transcription credits.
+    // Discard the short-lived token; actual transcription uses the stored key.
+    const endpoint =
+      config.model === "scribe_v2_realtime"
+        ? request.endpoint
+        : request.endpoint.replace("realtime_scribe", "batch_scribe");
+    const failure = await probe(
+      endpoint,
+      request,
+      fetchImpl,
+      async (response) => {
+        if (!response.ok) return describeResponseFailure(response, provider);
+        return typeof (await readJson(response))?.token === "string" ? null : {};
+      },
+      { method: "POST" }
+    );
+    return failure ? { success: false, ...failure } : { success: true };
+  }
 
   const model = String(config?.model || "").trim();
   let failure = null;

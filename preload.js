@@ -5,6 +5,7 @@ const { contextBridge, ipcRenderer, webUtils } = require("electron");
 // inlined here; keep them in sync with the BYOK_API_KEYS manifest in
 // src/config/secretKeys.js (the main process derives its plumbing from that).
 const BYOK_KEY_BRIDGES = [
+  { base: "elevenlabs", get: "getElevenLabsKey", save: "saveElevenLabsKey" },
   { base: "openai", get: "getOpenAIKey", save: "saveOpenAIKey" },
   { base: "anthropic", get: "getAnthropicKey", save: "saveAnthropicKey" },
   { base: "gemini", get: "getGeminiKey", save: "saveGeminiKey" },
@@ -631,6 +632,8 @@ contextBridge.exposeInMainWorld("electronAPI", {
   // xAI / Mistral transcription proxies (keys handled by the manifest bridge)
   proxyXaiTranscription: (data) => ipcRenderer.invoke("proxy-xai-transcription", data),
   proxyMistralTranscription: (data) => ipcRenderer.invoke("proxy-mistral-transcription", data),
+  proxyElevenLabsTranscription: (data) =>
+    ipcRenderer.invoke("proxy-elevenlabs-transcription", data),
   proxyGeminiTranscription: (data) => ipcRenderer.invoke("proxy-gemini-transcription", data),
 
   // Corti API
@@ -879,6 +882,32 @@ contextBridge.exposeInMainWorld("electronAPI", {
   ),
   onDeepgramSessionEnd: registerListener(
     "deepgram-session-end",
+    (callback) => (_event, data) => callback(data)
+  ),
+
+  // ElevenLabs Scribe Realtime (BYOK)
+  elevenlabsStreamingWarmup: (options) =>
+    ipcRenderer.invoke("elevenlabs-streaming-warmup", options),
+  elevenlabsStreamingStart: (options) => ipcRenderer.invoke("elevenlabs-streaming-start", options),
+  elevenlabsStreamingSend: (audioBuffer) =>
+    ipcRenderer.send("elevenlabs-streaming-send", audioBuffer),
+  elevenlabsStreamingFinalize: () => ipcRenderer.send("elevenlabs-streaming-finalize"),
+  elevenlabsStreamingStop: () => ipcRenderer.invoke("elevenlabs-streaming-stop"),
+  elevenlabsStreamingStatus: () => ipcRenderer.invoke("elevenlabs-streaming-status"),
+  onElevenLabsPartialTranscript: registerListener(
+    "elevenlabs-partial-transcript",
+    (callback) => (_event, text) => callback(text)
+  ),
+  onElevenLabsFinalTranscript: registerListener(
+    "elevenlabs-final-transcript",
+    (callback) => (_event, text) => callback(text)
+  ),
+  onElevenLabsError: registerListener(
+    "elevenlabs-error",
+    (callback) => (_event, error) => callback(error)
+  ),
+  onElevenLabsSessionEnd: registerListener(
+    "elevenlabs-session-end",
     (callback) => (_event, data) => callback(data)
   ),
 

@@ -637,3 +637,24 @@ test("combined-pipeline config expires after 30 seconds even when language routi
   assert.equal(manager.isSttConfigStale(at + 30000), false);
   assert.equal(manager.isSttConfigStale(at + 30001), true);
 });
+
+test("ElevenLabs selects streaming only for BYOK Scribe Realtime with a key", async (t) => {
+  const manager = await loadManager(t);
+  const settings = {
+    cloudTranscriptionProvider: "elevenlabs",
+    cloudTranscriptionModel: "scribe_v2_realtime",
+    elevenlabsApiKey: "fake-test-key",
+  };
+  setSettings(settings);
+  assert.equal(manager.shouldUseStreaming(), true);
+  assert.equal(manager.getStreamingProviderName(), "elevenlabs");
+  const provider = manager.getStreamingProvider("elevenlabs");
+  assert.equal(provider.preferStopTranscript, true);
+  assert.equal(provider.awaitsFinalTranscript, true);
+  setSettings({ ...settings, cloudTranscriptionModel: "scribe_v2" });
+  assert.equal(manager.shouldUseStreaming(), false);
+  setSettings({ ...settings, elevenlabsApiKey: "" });
+  assert.equal(manager.shouldUseStreaming(), false);
+  setSettings({ ...settings, cloudTranscriptionMode: "openwhispr" });
+  assert.equal(manager.shouldUseStreaming(), false);
+});

@@ -2763,7 +2763,9 @@
         "deepgram_nova_3": "Deepgrams genauestes Echtzeitmodell",
         "assemblyai_universal_streaming_english": "Unveränderliche Echtzeit-Transkripte, Englisch",
         "assemblyai_universal_streaming_multilingual": "Unveränderliche Echtzeit-Transkripte, mehrsprachig",
-        "assemblyai_universal_3_5_pro": "Höchste Genauigkeit in Echtzeit, 18 Sprachen"
+        "assemblyai_universal_3_5_pro": "Höchste Genauigkeit in Echtzeit, 18 Sprachen",
+        "elevenlabs_scribe_v2": "Scribe v2",
+        "elevenlabs_scribe_v2_realtime": "Scribe v2 Realtime"
       },
       "cloud": {
         "openai_gpt_5_2": "Starkes Reasoning-Modell",

@@ -158,6 +158,11 @@ export function resolveStreamingProviderName({ settings, context, sttConfig, lan
     if (managedOrukeet === "language_unsupported") return defaultStreamingProviderName(context);
   }
   if (isOrukeetStreaming(settings)) return "orukeet";
+  if (
+    settings.cloudTranscriptionMode === "byok" &&
+    settings.cloudTranscriptionProvider === "elevenlabs"
+  )
+    return "elevenlabs";
   if (settings.cloudTranscriptionProvider === "tinfoil") {
     return "tinfoil-realtime";
   }
