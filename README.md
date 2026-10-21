@@ -134,5 +134,6 @@ We welcome contributions. Fork the repo, create a feature branch, and open a pul
 ### ElevenLabs API keys
 
 ElevenLabs BYOK supports Scribe v2 batch transcription and Scribe v2 Realtime
-for live dictation. Select ElevenLabs under Settings → Speech to Text → Providers.
+for live dictation and Note Recording/meetings. Select ElevenLabs under Settings →
+Speech to Text → Providers, or in Note Recording settings.
 See [setup, behavior, and limitations](docs/elevenlabs.md).

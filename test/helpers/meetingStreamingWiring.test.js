@@ -176,3 +176,10 @@ test("a mid-meeting renewal refused for the session reports the sign-in sentinel
     /"meeting-transcription-error",\s*isSignInRefusal\(error\) \? "signInExpired" : error\.message/
   );
 });
+
+test("permanent streaming refusals signal one fatal recording stop", () => {
+  assert.match(
+    source,
+    /streaming\.onFatalError = \(error\) => \{\s*if \(meetingFatalErrorSent\) return;\s*meetingFatalErrorSent = true;\s*send\("meeting-transcription-fatal-error", error\.message\);/
+  );
+});

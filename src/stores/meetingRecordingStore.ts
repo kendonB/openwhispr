@@ -713,7 +713,12 @@ async function releaseSystemAudioCapture(): Promise<void> {
   systemContext = null;
 }
 
-async function cleanup(): Promise<void> {
+function detachMeetingIpcListeners(): void {
+  ipcCleanups.forEach((fn) => fn());
+  ipcCleanups = [];
+}
+
+async function cleanup({ preserveIpcListeners = false } = {}): Promise<void> {
   micRecovery?.stop();
   micRecovery = null;
   await flushAndDisconnectProcessor(micProcessor);
@@ -737,8 +742,7 @@ async function cleanup(): Promise<void> {
 
   await releaseSystemAudioCapture();
 
-  ipcCleanups.forEach((fn) => fn());
-  ipcCleanups = [];
+  if (!preserveIpcListeners) detachMeetingIpcListeners();
   // A debounced config push firing after stop would repopulate the session
   // config main just cleared, leaking this session's count into the next one.
   if (pushConfigTimeout) {
@@ -1681,7 +1685,8 @@ export async function stopRecording(expectedSessionId?: string): Promise<StopRec
     }
 
     const sessionId = activeRecordingSessionId;
-    activeRecordingSessionId = null;
+    // Keep the session guard live until main flushes its final commits. Starts
+    // remain serialized behind the stop barrier.
     isRecordingFlag = false;
     isStartingFlag = false;
     useMeetingRecordingStore.setState({ isRecording: false, isTranscribing: false });
@@ -1708,15 +1713,15 @@ export async function stopRecording(expectedSessionId?: string): Promise<StopRec
       serializeSegments: serializeTranscriptSegments,
       persist: persistTranscript,
       fallbackTranscript: () => useMeetingRecordingStore.getState().transcript,
+      finalizedSegments: () => useMeetingRecordingStore.getState().segments,
       stop: async () => {
-        // Set before cleanup's awaits: the final transcript write is already
-        // posted, so an earlier session's result can land from here on.
+        // Track the seed while capture drains; the diarization handler waits
+        // for the stop barrier before merging into the finalized transcript.
         const seed = { noteId: recordingNoteId, seedLength: sessionSeedLength };
         stoppingSeed = seed;
-        await cleanup();
-
         let stoppedDiarizationSessionId: string | null = null;
         try {
+          await cleanup({ preserveIpcListeners: true });
           const result = await window.electronAPI?.meetingTranscriptionStop?.(
             sessionId ?? undefined
           );
@@ -1740,6 +1745,8 @@ export async function stopRecording(expectedSessionId?: string): Promise<StopRec
             "meeting"
           );
         } finally {
+          detachMeetingIpcListeners();
+          if (activeRecordingSessionId === sessionId) activeRecordingSessionId = null;
           stoppingSeed = null;
         }
         return stoppedDiarizationSessionId;
@@ -1806,6 +1813,9 @@ if (typeof window !== "undefined") {
   const enqueueDiarizationCompletion = createSerialQueue();
   window.electronAPI?.onMeetingDiarizationComplete?.((data) => {
     enqueueDiarizationCompletion(async () => {
+      // Main can publish diarization before its stop reply. Let the final
+      // structured transcript save settle before reading/merging that note.
+      await meetingRecordingStopBarrier.waitForPendingStop();
       const {
         diarizationSessionId,
         isRecording,

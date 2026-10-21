@@ -217,3 +217,58 @@ test("a closing socket cannot silently discard the last audio and return earlier
   assert.equal(client.sendAudio(audio), false);
   await assert.rejects(client.disconnect(), { code: "PROVIDER_UNREACHABLE" });
 });
+
+test("meeting contract exposes individual segments and audio-aligned timestamps", async (t) => {
+  const { client, socket } = await ready(t);
+  const finals = [];
+  client.onFinalTranscript = (text, timestamp) =>
+    finals.push({ text, timestamp, segment: client.completedSegments.at(-1) });
+  client.sendAudio(Buffer.alloc(16000 * 2 * 21));
+  client.sessionStartedAt = 100000;
+  socket.receive({ message_type: "committed_transcript", text: " First turn. " });
+  const stop = client.disconnect();
+  socket.receive({ message_type: "committed_transcript", text: "Second turn." });
+  assert.deepEqual(await stop, { text: "First turn. Second turn." });
+  assert.deepEqual(client.completedSegments, ["First turn.", "Second turn."]);
+  assert.deepEqual(finals, [
+    { text: "First turn.", timestamp: 100000, segment: "First turn." },
+    { text: "First turn. Second turn.", timestamp: 120000, segment: "Second turn." },
+  ]);
+});
+
+test("unexpected connection loss requests meeting recovery exactly once", async (t) => {
+  const { client, socket } = await ready(t);
+  const lost = [],
+    errors = [];
+  client.onConnectionLost = (error) => lost.push(error.code);
+  client.onError = (error) => errors.push(error.code);
+  socket.emit("close");
+  socket.emit("error", new Error("duplicate failure"));
+  assert.deepEqual(lost, ["PROVIDER_UNREACHABLE"]);
+  assert.deepEqual(errors, ["PROVIDER_UNREACHABLE"]);
+  assert.equal(client.isConnected, false);
+});
+
+test("auth errors and intentional stop never trigger meeting reconnect", async (t) => {
+  for (const message of ["auth_error", "quota_exceeded"]) {
+    const { client, socket } = await ready(t);
+    client.onConnectionLost = () => assert.fail("must not reconnect permanent refusal");
+    socket.receive({ message_type: message });
+  }
+  const { client } = await ready(t);
+  client.onConnectionLost = () => assert.fail("normal stop must not reconnect");
+  assert.deepEqual(await client.disconnect(), { text: "" });
+});
+
+test("permanent active failures stop a meeting instead of accepting audio into a dead socket", async (t) => {
+  for (const code of ["auth_error", "quota_exceeded", "rate_limited", "invalid_request"]) {
+    const { client, socket } = await ready(t);
+    const fatal = [];
+    client.onFatalError = (error) => fatal.push(error.code);
+    client.onConnectionLost = () => assert.fail("permanent failures must not reconnect");
+    socket.receive({ message_type: code });
+    assert.equal(fatal.length, 1);
+    assert.equal(client.sendAudio(audio), false);
+    assert.equal(client.isConnected, false);
+  }
+});

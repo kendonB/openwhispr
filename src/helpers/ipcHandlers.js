@@ -7648,6 +7648,13 @@ class IPCHandlers {
           );
         }
       };
+      // Providers which close on a permanent refusal must stop the recording,
+      // rather than leave capture running into a dead socket after a toast.
+      streaming.onFatalError = (error) => {
+        if (meetingFatalErrorSent) return;
+        meetingFatalErrorSent = true;
+        send("meeting-transcription-fatal-error", error.message);
+      };
       streaming.onConnectionLost = (error) => {
         void recoverConnection(error, false);
       };

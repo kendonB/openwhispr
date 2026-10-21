@@ -20,8 +20,8 @@ in an existing development environment. Do not put keys in source files or logs.
 Keys follow OpenWhispr's existing credential storage: Electron safeStorage and the
 OS keyring when available, with the app's existing fallback when no keyring is
 available. Replacing or clearing the key uses the same settings controls as other
-providers. Each recording reads the saved key afresh; there are no billed idle
-warmup sessions. Both upload and WebSocket authentication happen in Electron's
+providers. Each recording reads the saved key afresh. Dictation warmup does not open a
+socket; meetings use the existing prepare/start connection lifecycle. Both upload and WebSocket authentication happen in Electron's
 main process using the `xi-api-key` header, never URL parameters.
 
 ## Behavior and limits
@@ -37,13 +37,22 @@ main process using the `xi-api-key` header, never URL parameters.
   **25 MiB** BYOK file limit and applies a two-minute request timeout.
 - Dictation honors the selected language; Auto omits the hint. File uploads use
   automatic language detection, consistent with other upload providers.
-- Live **Note Recording/meeting transcription** is not offered for ElevenLabs in
-  this change. The existing meeting-provider allowlist remains authoritative.
-  Audio file uploads are supported. Native ElevenLabs diarization, timestamps,
-  keyterm prompting, transcript editing, and regional endpoints are not exposed.
-- No actual account credentials or audio were used during development. Tests mock
-  the WebSocket, HTTP API, and IPC lifecycle. A credentialed microphone/desktop
-  smoke test and cross-platform packaged application testing remain outstanding.
+- Live **Note Recording/meeting transcription** is supported. Choose Providers →
+  ElevenLabs → Scribe v2 Realtime in Note Recording settings. Microphone and system
+  audio use independent 24 kHz PCM streams with the same saved API key; both streams
+  incur provider usage. Mic-only recording is available when system capture is not.
+- Meeting commits carry per-segment audio-aligned timestamps and retain source
+  labels for the app's existing speaker/diarization pipeline. Stop waits for both
+  final commits and persists the tail alongside earlier speaker-decorated segments.
+  Network interruptions use the existing bounded meeting reconnect/replay flow;
+  permanent provider refusals stop recording rather than silently discard audio.
+- Native ElevenLabs speaker diarization, keyterm prompting, transcript editing and
+  regional endpoints are not exposed. The app's existing local meeting diarization
+  remains separate from ElevenLabs transcription.
+- Automated tests cover mocked HTTP/WebSocket, dual-stream meeting lifecycle,
+  credential routing, stop-tail persistence, recovery and permanent errors.
+  Native Windows microphone/system-audio capture and installer execution require
+  separate Windows smoke testing; Linux fixture tests do not establish those.
 
 ## Protocol references
 

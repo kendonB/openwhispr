@@ -6,30 +6,35 @@ import type { TranscriptSegment } from "../stores/meetingRecordingStore";
 // to a mounted editor would silently drop the tail since the last periodic
 // save. Delayed diarization results are handled by the store's #1495 listener.
 //
-// The captured segments are final the moment the stop begins, and the note
-// editor swaps to the stored transcript as soon as isRecording flips — so they
-// are written before the main-side stop (which can take seconds) is awaited.
-// Only a segment-less recording waits for main's final transcript.
+// Write the current segments immediately for the editor, then reconcile finals
+// delivered while main drains the provider. Manual-commit providers may retain
+// several seconds of speech until stop; those finals must retain speaker metadata.
 export async function persistFinalTranscriptAroundStop<T>({
   segments,
   serializeSegments,
   persist,
   stop,
   fallbackTranscript,
+  finalizedSegments,
 }: {
   segments: TranscriptSegment[];
   serializeSegments: (segments: TranscriptSegment[]) => string;
   persist: (transcript: string) => Promise<void>;
   stop: () => Promise<T>;
   fallbackTranscript: () => string;
+  finalizedSegments?: () => TranscriptSegment[];
 }): Promise<T> {
-  const segmentWrite = segments.length > 0 ? persist(serializeSegments(segments)) : null;
+  const initialTranscript = segments.length > 0 ? serializeSegments(segments) : null;
+  const segmentWrite = initialTranscript !== null ? persist(initialTranscript) : null;
 
   const result = await stop();
 
-  if (segmentWrite) {
-    await segmentWrite;
-  } else {
+  if (segmentWrite) await segmentWrite;
+  const finalSegments = finalizedSegments?.();
+  if (finalSegments && (finalSegments.length > 0 || initialTranscript !== null)) {
+    const finalTranscript = serializeSegments(finalSegments);
+    if (finalTranscript !== initialTranscript) await persist(finalTranscript);
+  } else if (!segmentWrite) {
     const fallback = fallbackTranscript();
     if (fallback) await persist(fallback);
   }

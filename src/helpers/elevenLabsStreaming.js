@@ -51,6 +51,7 @@ class ElevenLabsStreaming {
     this.ws = null;
     this.audioBytesSent = 0;
     this.text = "";
+    this.completedSegments = [];
   }
 
   connect({ apiKey, sampleRate = 16000, language } = {}) {
@@ -62,6 +63,10 @@ class ElevenLabsStreaming {
     this.failure = null;
     this.finalizing = false;
     this.pendingCommits = 0;
+    this.commitOffsets = [];
+    this.nextSegmentByteOffset = 0;
+    this.sessionStartedAt = null;
+    this.completedSegments = [];
     this.segmentBytes = 0;
     this.audioBytesSent = 0;
     this.queue = [];
@@ -105,9 +110,15 @@ class ElevenLabsStreaming {
           if (typeof data.text === "string") this.onPartialTranscript?.(data.text);
         } else if (data.message_type === "committed_transcript") {
           if (typeof data.text !== "string") return this.fail(C.ERROR);
-          if (data.text) {
-            this.text = [this.text, data.text].filter(Boolean).join(" ");
-            this.onFinalTranscript?.(this.text);
+          const segmentByteOffset = this.commitOffsets.shift() ?? this.nextSegmentByteOffset;
+          if (data.text.trim()) {
+            this.completedSegments.push(data.text.trim());
+            this.text = this.completedSegments.join(" ");
+            const timestamp =
+              this.sessionStartedAt == null
+                ? Date.now()
+                : this.sessionStartedAt + (segmentByteOffset / (this.sampleRate * 2)) * 1000;
+            this.onFinalTranscript?.(this.text, timestamp);
           }
           if (this.pendingCommits > 0) this.pendingCommits--;
           if (this.finalizing && this.pendingCommits === 0) this.resolveFinal?.();
@@ -146,6 +157,7 @@ class ElevenLabsStreaming {
       return true;
     }
     if (!this.isConnected) return false;
+    if (this.sessionStartedAt == null) this.sessionStartedAt = Date.now();
     // At most one second of PCM per message, including buffered cold-start audio.
     for (let offset = 0; offset < buffer.length; offset += this.sampleRate * 2) {
       const chunk = buffer.subarray(offset, offset + this.sampleRate * 2);
@@ -168,6 +180,8 @@ class ElevenLabsStreaming {
     }
     if (commit) {
       this.pendingCommits++;
+      this.commitOffsets.push(this.nextSegmentByteOffset);
+      this.nextSegmentByteOffset = this.audioBytesSent + buffer.length;
       this.segmentBytes = 0;
     }
     const socket = this.ws;
@@ -224,11 +238,16 @@ class ElevenLabsStreaming {
   fail(code) {
     if (this.failure) return;
     const error = code instanceof Error ? code : providerError(code, context);
+    const activeFailure = this.isConnected && !this.finalizing;
+    const recoverable =
+      activeFailure && [C.UNREACHABLE, C.UNAVAILABLE, C.TIMEOUT].includes(error.code);
     this.failure = error;
     this.rejectConnect?.(error);
     this.rejectFinal?.(error);
     this.cleanup();
     this.onError?.(error);
+    if (recoverable) this.onConnectionLost?.(error);
+    else if (activeFailure) this.onFatalError?.(error);
   }
 
   cleanup() {
