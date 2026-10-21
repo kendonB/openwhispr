@@ -263,7 +263,9 @@ async function createSetupHarness(
       await React.act(async () => button.props.onClick());
     },
     skip: async () => {
-      const button = actionButton("common.skip");
+      const button = actionButton(
+        assistant ? "onboarding.rehaul.provider.skipAssistantSetup" : "common.skip"
+      );
       assert.ok(button && !button.props.disabled, "Skip is enabled");
       await React.act(async () => button.props.onClick());
     },
@@ -273,7 +275,9 @@ async function createSetupHarness(
     resumeDrafts: () => resumeDrafts,
     canProceed: () => !actionButton("onboarding.rehaul.provider.proceed").props.disabled,
     canSkip: () => {
-      const button = actionButton("common.skip");
+      const button = actionButton(
+        assistant ? "onboarding.rehaul.provider.skipAssistantSetup" : "common.skip"
+      );
       return Boolean(button && !button.props.disabled);
     },
   };
@@ -433,12 +437,31 @@ test("a resumed local-model draft overrides the previously saved model", async (
   assert.equal(setup.canProceed(), true);
 });
 
-test("Skip marks a pending model for background activation", async (t) => {
+test("Skip assistant setup lets its download finish without activating it", async (t) => {
   const setup = await createSetupHarness(t, { assistant: true });
   await setup.click(FIRST_LLM, "onboarding.rehaul.local.download");
   assert.equal(setup.canSkip(), true);
   await setup.skip();
+  assert.equal(setup.pending.readPendingLocalModels().assistant, undefined);
+  assert.equal(localStorage.getItem("localSetupPending"), null);
+  await setup.complete(FIRST_LLM);
+  assert.equal(setup.store.getState().chatAgentModel, "");
+});
+
+test("Skip assistant setup preserves a pending dictation download across restart", async (t) => {
+  const setup = await createSetupHarness(t, { assistant: true });
+  await setup.click(FIRST_LLM, "onboarding.rehaul.local.download");
+  setup.pending.rememberPendingLocalModel("dictation", { provider: "whisper", modelId: "base" });
+  await setup.skip();
+  assert.deepEqual(setup.pending.readPendingLocalModels(), {
+    dictation: { provider: "whisper", modelId: "base" },
+  });
   assert.equal(localStorage.getItem("localSetupPending"), "true");
+  await setup.complete(FIRST_LLM);
+  assert.equal(setup.store.getState().chatAgentModel, "");
+  assert.deepEqual(setup.pending.readPendingLocalModels(), {
+    dictation: { provider: "whisper", modelId: "base" },
+  });
 });
 
 test("the assistant step can be skipped with no model selected or downloading", async (t) => {
@@ -536,4 +559,16 @@ test("an extracting row says so while another model is still downloading", async
   assert.match(textContent(setup.trayRow(`llm:${FIRST_LLM}`)), /40%/);
   // Not every row has reached extraction, so the strip stays on downloading.
   assert.equal(setup.trayHeader(), "onboarding.rehaul.local.downloadInProgress");
+});
+
+test("an already selected local model does not remove the option to skip assistant setup", async (t) => {
+  const setup = await createSetupHarness(t, {
+    assistant: true,
+    installed: { llm: [FIRST_LLM] },
+    selectedModel: FIRST_LLM,
+  });
+  assert.equal(setup.canProceed(), true);
+  assert.equal(setup.canSkip(), true);
+  await setup.skip();
+  assert.equal(setup.skipped(), true);
 });
