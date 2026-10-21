@@ -85,6 +85,7 @@ async function mountByokStep(
   t.mock.timers.enable({ apis: ["setTimeout"] });
 
   let proceeded = 0;
+  let skipped = 0;
 
   let tree;
   const drafts = [];
@@ -99,11 +100,14 @@ async function mountByokStep(
       onProceed: () => {
         proceeded += 1;
       },
+      onSkip: () => {
+        skipped += 1;
+      },
       onResumeStateChange: (draft) => drafts.push(draft),
     });
     return null;
   }
-  const root = createRoot(container);
+  let root = createRoot(container);
   await React.act(async () => root.render(React.createElement(Harness)));
   let mounted = true;
   unmount = async () => {
@@ -170,6 +174,22 @@ async function mountByokStep(
     proceedDisabled: () => proceedButton().props.disabled,
     proceed: () => act(() => proceedButton().props.onClick()),
     proceeded: () => proceeded,
+    skipButton: () =>
+      find((node) => node.props?.children === "onboarding.rehaul.provider.skipAssistantSetup")[0],
+    skip: () =>
+      act(() =>
+        find(
+          (node) => node.props?.children === "onboarding.rehaul.provider.skipAssistantSetup"
+        )[0].props.onClick()
+      ),
+    skipped: () => skipped,
+    remountWithDraft: async (draft) => {
+      await unmount();
+      resumeState = draft;
+      root = createRoot(container);
+      mounted = true;
+      await React.act(async () => root.render(React.createElement(Harness)));
+    },
     // Unmounting flushes the debounced draft write, as advancing past the step does.
     unmountForDrafts: async () => {
       await unmount();

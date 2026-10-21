@@ -52,6 +52,7 @@ import {
 import { useDebouncedCallback } from "../../hooks/useDebouncedCallback";
 import {
   forgetPendingLocalModel,
+  hasPendingLocalModels,
   isPendingLocalModel,
   readPendingLocalModels,
   rememberPendingLocalModel,
@@ -317,6 +318,7 @@ export function ByokProviderStep({
   onSelfHostedChange,
   onConnectionChange,
   onProceed,
+  onSkip,
   resumeState,
   onResumeStateChange,
 }: {
@@ -326,6 +328,8 @@ export function ByokProviderStep({
   onSelfHostedChange: (requested: boolean) => void;
   onConnectionChange: (usable: boolean) => void;
   onProceed: () => void;
+  /** Optional assistant setup only; dictation must still be configured. */
+  onSkip?: () => void;
   resumeState?: OnboardingByokDraft;
   onResumeStateChange?: (state: OnboardingByokDraft) => void;
 }) {
@@ -736,9 +740,18 @@ export function ByokProviderStep({
           </>
         )}
 
-        <StepPrimaryAction onClick={commitAndProceed} disabled={!usable} className="mt-4! w-full">
-          {t("onboarding.rehaul.provider.proceed")}
-        </StepPrimaryAction>
+        <div className={`mt-4 grid gap-2 ${assistant && onSkip ? "grid-cols-2" : "grid-cols-1"}`}>
+          {assistant && onSkip && (
+            <Button type="button" variant="outline" onClick={onSkip} className="h-10">
+              {t("onboarding.rehaul.provider.skipAssistantSetup", {
+                defaultValue: "Skip assistant setup",
+              })}
+            </Button>
+          )}
+          <StepPrimaryAction onClick={commitAndProceed} disabled={!usable} className="w-full">
+            {t("onboarding.rehaul.provider.proceed")}
+          </StepPrimaryAction>
+        </div>
       </div>
 
       <ConnectionCheckAnnouncer announcement={check.announcement} />
@@ -1004,7 +1017,7 @@ export function LocalModelSetupStep({
     pendingSelection && pendingDownload.isDownloadingModel(pendingSelection.modelId)
   );
   const canProceed = selectedReady || hasPendingDownload;
-  const showSkip = anyDownloadActive || (assistant && !selectedReady);
+  const showSkip = assistant || anyDownloadActive;
 
   const proceed = () => {
     // Leaving mid-download is the same situation as "download in background":
@@ -1017,7 +1030,11 @@ export function LocalModelSetupStep({
   };
 
   const skip = () => {
-    localStorage.setItem("localSetupPending", "true");
+    // Skipping assistant setup withdraws automatic activation, not the download.
+    // Keep a pending dictation model eligible to finish in the background.
+    if (assistant) forgetPendingLocalModel("assistant");
+    if (hasPendingLocalModels()) localStorage.setItem("localSetupPending", "true");
+    else localStorage.removeItem("localSetupPending");
     onSkip();
   };
 
@@ -1161,7 +1178,11 @@ export function LocalModelSetupStep({
             disabled={!assistant && !canProceed}
             className="h-10!"
           >
-            {t("common.skip")}
+            {assistant
+              ? t("onboarding.rehaul.provider.skipAssistantSetup", {
+                  defaultValue: "Skip assistant setup",
+                })
+              : t("common.skip")}
           </StepSecondaryAction>
         )}
         <StepPrimaryAction onClick={proceed} disabled={!canProceed} className="h-10!">

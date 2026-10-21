@@ -1,3 +1,4 @@
+import { skipOptionalAssistantSetup } from "./onboarding/optionalAssistantSetup";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTranslation } from "react-i18next";
 import { AlertCircle } from "./icons";
@@ -861,16 +862,26 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
     skipSetupChoiceForEnterprise,
   ]);
 
+  const skipAssistantSetup = useCallback(async () => {
+    if (isFinishing) return;
+    await skipOptionalAssistantSetup({
+      stepId: currentStepId,
+      route,
+      disableReasoning: () => {
+        settingsStore.updateCleanupSettings({ useCleanupModel: false });
+        settingsStore.setUseDictationAgent(false);
+      },
+      complete: finalizeOnboarding,
+    });
+  }, [currentStepId, route, isFinishing, settingsStore, finalizeOnboarding]);
+
   const skipLocalSetup = useCallback(async () => {
     if (currentStepId === "local-dictation") {
       await continueFromCurrentStep();
       return;
     }
-    // The local assistant is optional. If the user skips it, prevent
-    // dictation from falling back to an unconfigured cleanup provider.
-    settingsStore.updateCleanupSettings({ useCleanupModel: false });
-    await finalizeOnboarding("local");
-  }, [continueFromCurrentStep, currentStepId, finalizeOnboarding, settingsStore]);
+    await skipAssistantSetup();
+  }, [continueFromCurrentStep, currentStepId, skipAssistantSetup]);
 
   const canContinue = (() => {
     switch (currentStepId) {
@@ -1249,6 +1260,9 @@ export default function OnboardingFlow({ onComplete }: OnboardingFlowProps) {
               onSelfHostedChange={setSelfHostedRequested}
               onConnectionChange={setStageReady}
               onProceed={() => void continueFromCurrentStep()}
+              onSkip={
+                currentStepId === "byok-assistant" ? () => void skipAssistantSetup() : undefined
+              }
               resumeState={session.resume.byok[currentStepId]}
               onResumeStateChange={updateCurrentByokDraft}
             />

@@ -393,6 +393,7 @@
         }
       },
       "provider": {
+        "skipAssistantSetup": "Skip assistant setup",
         "progress": "Provider setup progress",
         "dictation": "Dictation",
         "assistant": "Assistant",
