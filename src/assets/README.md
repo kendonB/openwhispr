@@ -27,3 +27,11 @@ You can create these icons using:
 ## Placeholder
 
 Until you add your own icons, the app will use system default icons during development.
+
+## Provider marks
+
+- `icons/providers/elevenlabs.svg`: unmodified official ElevenLabs symbol from
+  [ElevenLabs Brand Resources](https://elevenlabs.io/brand), downloaded 21 October 2026.
+  [Original SVG](https://11labs-nonprd-15f22c1d.s3.eu-west-3.amazonaws.com/a2ea339b-8b5e-41bb-b706-24eda8a4c9e3/elevenlabs-symbol.svg).
+  The supplied geometry and clearance are preserved; the shared monochrome filter
+  displays the black mark in light mode and white in dark mode.
