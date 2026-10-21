@@ -103,7 +103,7 @@ async function mountByokStep(
     });
     return null;
   }
-  const root = createRoot(container);
+  let root = createRoot(container);
   await React.act(async () => root.render(React.createElement(Harness)));
   let mounted = true;
   unmount = async () => {
@@ -143,6 +143,19 @@ async function mountByokStep(
           providerId
         )
       ),
+    chooseModel: (modelId) =>
+      act(() =>
+        find((node) => typeof node.props?.onValueChange === "function")[1].props.onValueChange(
+          modelId
+        )
+      ),
+    remountFromSavedSettings: async () => {
+      await unmount();
+      resumeState = undefined;
+      root = createRoot(container);
+      mounted = true;
+      await React.act(async () => root.render(React.createElement(Harness)));
+    },
     connectionRequests: () => connections.map((connection) => connection.config),
     wait,
     answerConnection,
