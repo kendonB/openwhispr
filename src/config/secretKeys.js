@@ -8,6 +8,13 @@
 // (guarded by test/helpers/secretKeys.test.js).
 const BYOK_API_KEYS = [
   {
+    base: "elevenlabs",
+    env: "ELEVENLABS_API_KEY",
+    get: "getElevenLabsKey",
+    save: "saveElevenLabsKey",
+    storeKey: "elevenlabsApiKey",
+  },
+  {
     base: "openai",
     env: "OPENAI_API_KEY",
     get: "getOpenAIKey",

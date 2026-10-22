@@ -7,6 +7,7 @@
 // is pinned by test/helpers/meetingStreamingProviders.test.js.
 export const MEETING_STREAMING_PROVIDER_IDS = [
   "openai",
+  "elevenlabs",
   "assemblyai",
   "deepgram",
   "corti",

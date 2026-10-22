@@ -155,7 +155,7 @@ test("connection identity follows key saves exactly when the token comes from a 
         return "key";
       };
       const options = { provider, mode };
-      await fetchRealtimeTokenForProvider(
+      const acquisition = fetchRealtimeTokenForProvider(
         provider,
         {
           environmentManager: new Proxy({}, { get: () => savedKey }),
@@ -165,6 +165,12 @@ test("connection identity follows key saves exactly when the token comes from a 
         },
         options
       );
+      if (provider === "elevenlabs-realtime" && mode !== "byok") {
+        await assert.rejects(acquisition, /requires your own API key/);
+        assert.equal(readsSavedKey, false);
+        continue;
+      }
+      await acquisition;
       assert.equal(
         getMeetingConnectionKey(options, 1) !== getMeetingConnectionKey(options, 2),
         readsSavedKey,
@@ -172,4 +178,17 @@ test("connection identity follows key saves exactly when the token comes from a 
       );
     }
   }
+});
+
+test("ElevenLabs is offered for meetings and uses its own client and credential generation", async () => {
+  const { getMeetingStreamingTranscriptionProviders } =
+    await import("../../src/models/ModelRegistry.ts");
+  const { getMeetingStreamingClient, getMeetingConnectionKey } = await load();
+  const { ElevenLabsStreaming } = require("../../src/helpers/elevenLabsStreaming");
+  assert.ok(
+    getMeetingStreamingTranscriptionProviders().some((provider) => provider.id === "elevenlabs")
+  );
+  assert.equal(getMeetingStreamingClient("elevenlabs-realtime"), ElevenLabsStreaming);
+  const options = { provider: "elevenlabs-realtime", mode: "byok", model: "scribe_v2_realtime" };
+  assert.notEqual(getMeetingConnectionKey(options, 1), getMeetingConnectionKey(options, 2));
 });

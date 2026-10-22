@@ -258,6 +258,7 @@ const CLOUD_PROVIDER_TABS = [
   { id: "gemini", name: "Gemini" },
   { id: "corti", name: "Corti" },
   { id: "tinfoil", name: "Tinfoil" },
+  { id: "elevenlabs", name: "ElevenLabs" },
   { id: "deepgram", name: "Deepgram" },
   { id: "assemblyai", name: "AssemblyAI" },
   { id: "custom", name: "Custom" },
@@ -276,6 +277,7 @@ interface ProviderCredentialField {
     | "cortiTenant"
     | "tinfoilApiKey"
     | "deepgramApiKey"
+    | "elevenlabsApiKey"
     | "assemblyaiApiKey";
   input: "secret" | "text" | "select";
   labelKey?: string;
@@ -332,6 +334,10 @@ const PROVIDER_CREDENTIALS: Record<
   tinfoil: {
     consoleUrl: "https://tinfoil.sh/inference?utm_source=referral&utm_campaign=openwhispr",
     fields: [{ key: "tinfoilApiKey", input: "secret" }],
+  },
+  elevenlabs: {
+    consoleUrl: "https://elevenlabs.io/app/settings/api-keys",
+    fields: [{ key: "elevenlabsApiKey", input: "secret" }],
   },
   deepgram: {
     consoleUrl: "https://console.deepgram.com/",
@@ -474,6 +480,8 @@ export default function TranscriptionModelPicker({
   const setTinfoilApiKey = useSettingsStore((s) => s.setTinfoilApiKey);
   const deepgramApiKey = useSettingsStore((s) => s.deepgramApiKey);
   const setDeepgramApiKey = useSettingsStore((s) => s.setDeepgramApiKey);
+  const elevenlabsApiKey = useSettingsStore((s) => s.elevenlabsApiKey);
+  const setElevenlabsApiKey = useSettingsStore((s) => s.setElevenlabsApiKey);
   const assemblyaiApiKey = useSettingsStore((s) => s.assemblyaiApiKey);
   const setAssemblyaiApiKey = useSettingsStore((s) => s.setAssemblyaiApiKey);
   const customTranscriptionApiKey = useSettingsStore((s) => s.customTranscriptionApiKey);
@@ -1087,6 +1095,7 @@ export default function TranscriptionModelPicker({
     cortiTenant: keyDraft.value("cortiTenant", cortiTenant),
     tinfoilApiKey: keyDraft.value("tinfoilApiKey", tinfoilApiKey),
     deepgramApiKey: keyDraft.value("deepgramApiKey", deepgramApiKey),
+    elevenlabsApiKey: keyDraft.value("elevenlabsApiKey", elevenlabsApiKey),
     assemblyaiApiKey: keyDraft.value("assemblyaiApiKey", assemblyaiApiKey),
   };
   const customKey = keyDraft.value("customTranscriptionApiKey", customTranscriptionApiKey);
@@ -1102,6 +1111,7 @@ export default function TranscriptionModelPicker({
     cortiTenant: setCortiTenant,
     tinfoilApiKey: setTinfoilApiKey,
     deepgramApiKey: setDeepgramApiKey,
+    elevenlabsApiKey: setElevenlabsApiKey,
     assemblyaiApiKey: setAssemblyaiApiKey,
   };
 

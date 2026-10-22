@@ -419,6 +419,26 @@
           "streaming": true
         }
       ]
+    },
+    {
+      "id": "elevenlabs",
+      "name": "ElevenLabs",
+      "baseUrl": "https://api.elevenlabs.io/v1",
+      "batchModel": "scribe_v2",
+      "models": [
+        {
+          "id": "scribe_v2",
+          "name": "Scribe v2",
+          "default": true,
+          "descriptionKey": "models.descriptions.transcription.elevenlabs_scribe_v2"
+        },
+        {
+          "id": "scribe_v2_realtime",
+          "name": "Scribe v2 Realtime",
+          "streaming": true,
+          "descriptionKey": "models.descriptions.transcription.elevenlabs_scribe_v2_realtime"
+        }
+      ]
     }
   ],
   "cloudProviders": [

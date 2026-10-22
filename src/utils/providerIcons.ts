@@ -21,6 +21,7 @@ import xaiIcon from "@/assets/icons/providers/xai.svg";
 import cortiIcon from "@/assets/icons/providers/corti.svg";
 import openrouterIcon from "@/assets/icons/providers/openrouter.svg";
 import tinfoilIcon from "@/assets/icons/providers/tinfoil.svg";
+import elevenlabsIcon from "@/assets/icons/providers/elevenlabs.svg";
 import deepgramIcon from "@/assets/icons/providers/deepgram.svg";
 import assemblyaiIcon from "@/assets/icons/providers/assemblyai.svg";
 
@@ -46,6 +47,7 @@ export const PROVIDER_ICONS: Record<string, string> = {
   corti: cortiIcon,
   openrouter: openrouterIcon,
   tinfoil: tinfoilIcon,
+  elevenlabs: elevenlabsIcon,
   deepgram: deepgramIcon,
   assemblyai: assemblyaiIcon,
 };
@@ -65,6 +67,7 @@ export const MONOCHROME_PROVIDERS = [
   "openrouter",
   "tinfoil",
   "assemblyai",
+  "elevenlabs",
 ] as const;
 
 export function isMonochromeProvider(provider: string): boolean {

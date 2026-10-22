@@ -380,3 +380,33 @@ test("server tokens: only session refusals count as sign-in refusals", async () 
     false
   );
 });
+
+test("ElevenLabs meetings use saved BYOK credentials for independent mic/system streams", async () => {
+  const { fetchRealtimeTokenForProvider } = await load();
+  const dependencies = deps({ environmentManager: { getElevenLabsKey: () => "el-test-key" } });
+  assert.equal(
+    await fetchRealtimeTokenForProvider("elevenlabs-realtime", dependencies, { mode: "byok" }),
+    "el-test-key"
+  );
+  assert.deepEqual(
+    await fetchRealtimeTokenForProvider(
+      "elevenlabs-realtime",
+      dependencies,
+      { mode: "byok" },
+      { streams: 2 }
+    ),
+    ["el-test-key", "el-test-key"]
+  );
+  await assert.rejects(
+    fetchRealtimeTokenForProvider("elevenlabs-realtime", dependencies, { mode: "openwhispr" }),
+    /requires your own API key/
+  );
+  await assert.rejects(
+    fetchRealtimeTokenForProvider(
+      "elevenlabs-realtime",
+      deps({ environmentManager: { getElevenLabsKey: () => " " } }),
+      { mode: "byok" }
+    ),
+    /No ElevenLabs API key/
+  );
+});

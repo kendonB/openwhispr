@@ -12,6 +12,16 @@ const dual = (streams, factory) =>
 const duplicate = (streams, value) => (streams === 2 ? [value, value] : value);
 
 const REALTIME_TOKEN_PROVIDERS = {
+  "elevenlabs-realtime": async ({ environmentManager }, options, streams) => {
+    // ElevenLabs is BYOK only. Never send its saved key through a managed route.
+    if (options.mode !== "byok") throw new Error("ElevenLabs requires your own API key.");
+    const apiKey = environmentManager.getElevenLabsKey();
+    if (!apiKey?.trim()) {
+      throw new Error("No ElevenLabs API key configured. Add your key in Settings.");
+    }
+    return duplicate(streams, apiKey);
+  },
+
   "assemblyai-realtime": async (
     { environmentManager, proxyFetch, postServerToken },
     options,

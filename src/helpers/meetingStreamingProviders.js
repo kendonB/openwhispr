@@ -1,3 +1,4 @@
+const { ElevenLabsStreaming } = require("./elevenLabsStreaming");
 const OpenAIRealtimeStreaming = require("./openaiRealtimeStreaming");
 const AssemblyAiStreaming = require("./assemblyAiStreaming");
 const DeepgramStreaming = require("./deepgramStreaming");
@@ -6,6 +7,7 @@ const { TinfoilRealtimeStreaming } = require("./tinfoilRealtimeStreaming");
 
 const STREAMING_CLIENT_BY_PROVIDER = {
   "openai-realtime": OpenAIRealtimeStreaming,
+  "elevenlabs-realtime": ElevenLabsStreaming,
   "assemblyai-realtime": AssemblyAiStreaming,
   "deepgram-realtime": DeepgramStreaming,
   "corti-realtime": CortiStreaming,

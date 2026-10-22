@@ -2527,3 +2527,30 @@ test("batch Cloud translation cleans up in Cloud only when the cleanup scope is 
     });
   }
 });
+
+test("ElevenLabs stop failure never publishes earlier commits or unconfirmed partial text", async (t) => {
+  const AudioManager = await loadManagerClass(t);
+  const { manager } = createFinalizingManager(AudioManager);
+  manager.streamingFinalText = "An earlier segment.";
+  manager.streamingPartialText = "Unconfirmed tail";
+  manager.getStreamingProviderName = () => "elevenlabs";
+  manager.getStreamingProvider = () => ({
+    requiresSuccessfulStop: true,
+    awaitsFinalTranscript: true,
+    finalize() {},
+    stop: async () => ({ success: false, code: "PROVIDER_TIMEOUT", error: "Timed out" }),
+  });
+  const published = [],
+    errors = [],
+    saved = [];
+  manager.onTranscriptionComplete = (result) => published.push(result);
+  manager.onError = (error) => errors.push(error);
+  manager.saveFailedTranscription = (...args) => {
+    saved.push(args);
+    return Promise.resolve();
+  };
+  await manager.stopStreamingRecording();
+  assert.equal(published.length, 0);
+  assert.equal(saved.length, 1);
+  assert.equal(errors[0]?.code, "PROVIDER_TIMEOUT");
+});

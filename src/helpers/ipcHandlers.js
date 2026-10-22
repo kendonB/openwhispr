@@ -124,6 +124,8 @@ const { i18nMain, changeLanguage } = require("./i18nMain");
 const DeepgramStreaming = require("./deepgramStreaming");
 const { GeminiLiveStreaming, GEMINI_LIVE_MODEL } = require("./geminiLiveStreaming");
 const CortiStreaming = require("./cortiStreaming");
+const { ElevenLabsStreaming } = require("./elevenLabsStreaming");
+const { transcribeWithElevenLabs } = require("./elevenLabsTranscription");
 const OpenAIRealtimeStreaming = require("./openaiRealtimeStreaming");
 const { getCortiToken } = require("./cortiAuth");
 const { ONBOARDING_DEMO_KINDS, ONBOARDING_DEMO_STATUSES } = require("./onboardingInputPolicy");
@@ -5042,6 +5044,20 @@ class IPCHandlers {
       })
     );
 
+    ipcMain.handle(
+      "proxy-elevenlabs-transcription",
+      serializeIpcError(async (_event, { audioBuffer, language, contentType, fileName }) =>
+        transcribeWithElevenLabs({
+          audioBuffer,
+          noVerbatim: true,
+          language,
+          contentType,
+          fileName,
+          apiKey: this.environmentManager.getElevenLabsKey(),
+        })
+      )
+    );
+
     ipcMain.handle("get-custom-transcription-key", async () => {
       return this.environmentManager.getCustomTranscriptionKey();
     });
@@ -7035,6 +7051,14 @@ class IPCHandlers {
             apiKey: this.environmentManager.getTinfoilKey(),
           });
           result = { text, source: "tinfoil", model };
+        } else if (route.transport === "proxied" && route.provider === "elevenlabs") {
+          const { text, model } = await transcribeWithElevenLabs({
+            audioBuffer: buffer,
+            noVerbatim: true,
+            language: route.language,
+            apiKey: this.environmentManager.getElevenLabsKey(),
+          });
+          result = { text, source: "elevenlabs", model };
         } else if (route.transport === "proxied" && route.provider === "corti") {
           // Corti uses OAuth + an interaction-based REST flow, so it can't use
           // the generic fetch below.
@@ -7625,6 +7649,13 @@ class IPCHandlers {
             error?.message || "Meeting transcription connection could not be restored."
           );
         }
+      };
+      // Providers which close on a permanent refusal must stop the recording,
+      // rather than leave capture running into a dead socket after a toast.
+      streaming.onFatalError = (error) => {
+        if (meetingFatalErrorSent) return;
+        meetingFatalErrorSent = true;
+        send("meeting-transcription-fatal-error", error.message);
       };
       streaming.onConnectionLost = (error) => {
         void recoverConnection(error, false);
@@ -10761,6 +10792,17 @@ class IPCHandlers {
             return { success: false, error: byokSizeCapError(route.sizeCapBytes) };
           }
 
+          if (route.transport === "proxied" && route.provider === "elevenlabs") {
+            const { text } = await transcribeWithElevenLabs({
+              audioBuffer: fs.readFileSync(realByok),
+              fileName: path.basename(realByok),
+              contentType: providerContentType(realByok),
+              // Uploads auto-detect language, matching the other file providers.
+              apiKey: this.environmentManager.getElevenLabsKey(),
+            });
+            return { success: true, text };
+          }
+
           if (route.transport === "proxied" && route.provider === "corti") {
             const clientId = this.environmentManager.getCortiClientId();
             const clientSecret = this.environmentManager.getCortiClientSecret();
@@ -11744,6 +11786,13 @@ class IPCHandlers {
         return { isConnected: false, sessionId: null };
       }
       return this.deepgramStreaming.getStatus();
+    });
+
+    require("./elevenLabsStreamingIpc").registerElevenLabsStreamingIpc({
+      ipcMain,
+      createStreaming: () => new ElevenLabsStreaming(),
+      getApiKey: () => this.environmentManager.getElevenLabsKey(),
+      startFailure: (error) => ({ success: false, ...ipcErrorFields(error) }),
     });
 
     let geminiStreamingStartInProgress = false;

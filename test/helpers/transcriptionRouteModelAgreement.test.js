@@ -20,6 +20,7 @@ const PREFIX_VALIDATED_PROVIDERS = [
   "gemini",
   "deepgram",
   "assemblyai",
+  "elevenlabs",
 ];
 
 test("every shipping registry model survives resolveByokModel", async () => {

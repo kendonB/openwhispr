@@ -116,7 +116,7 @@ export type TranscriptionRoute =
   | { transport: "local" }
   | {
       transport: "proxied";
-      provider: "tinfoil" | "mistral" | "xai" | "corti" | "gemini";
+      provider: "tinfoil" | "mistral" | "xai" | "corti" | "gemini" | "elevenlabs";
       model: string | null;
       language?: string;
       sizeCapBytes: number;
@@ -179,6 +179,7 @@ export const XAI_STT_LANGUAGES = new Set([
 // two together for every shipping model.
 export function resolveByokModel(provider: string, configuredModel?: string): string {
   const trimmed = (configuredModel || "").trim();
+  if (provider === "elevenlabs") return trimmed === "scribe_v2_realtime" ? trimmed : "scribe_v2";
   if (provider === "custom") return trimmed || "whisper-1";
   if (trimmed) {
     const matchesProvider =
@@ -341,6 +342,15 @@ export function resolveTranscriptionRoute({
       model: provider === "mistral" ? model : provider === "xai" ? "grok-stt" : null,
       language:
         provider === "xai" && language && !XAI_STT_LANGUAGES.has(language) ? undefined : language,
+      sizeCapBytes: BYOK_FILE_SIZE_LIMIT,
+    };
+  }
+  if (provider === "elevenlabs") {
+    return {
+      transport: "proxied",
+      provider,
+      model: "scribe_v2",
+      language,
       sizeCapBytes: BYOK_FILE_SIZE_LIMIT,
     };
   }

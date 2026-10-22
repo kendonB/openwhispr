@@ -100,6 +100,7 @@ export interface ApiKeySettings {
   cortiApiKey: string;
   tinfoilApiKey: string;
   deepgramApiKey: string;
+  elevenlabsApiKey: string;
   assemblyaiApiKey: string;
   customTranscriptionApiKey: string;
   cleanupCustomApiKey: string;
@@ -333,6 +334,7 @@ function useSettingsInternal() {
     openrouterApiKey: store.openrouterApiKey,
     tinfoilApiKey: store.tinfoilApiKey,
     deepgramApiKey: store.deepgramApiKey,
+    elevenlabsApiKey: store.elevenlabsApiKey,
     assemblyaiApiKey: store.assemblyaiApiKey,
     dictationKey: store.dictationKey,
     meetingKey: store.meetingKey,

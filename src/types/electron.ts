@@ -2379,6 +2379,12 @@ declare global {
       // Gemini API key management
       getGeminiKey: () => Promise<string | null>;
       saveGeminiKey: (key: string) => Promise<void>;
+      proxyElevenLabsTranscription?: (data: {
+        audioBuffer: ArrayBuffer;
+        language?: string;
+        contentType?: string;
+        fileName?: string;
+      }) => Promise<ProxyTranscriptionResult>;
       proxyGeminiTranscription?: (data: {
         audioBuffer: ArrayBuffer;
         model?: string;
@@ -2434,6 +2440,8 @@ declare global {
       }) => Promise<ProxyTranscriptionResult>;
       getDeepgramKey?: () => Promise<string | null>;
       saveDeepgramKey?: (key: string) => Promise<void>;
+      getElevenLabsKey?: () => Promise<string | null>;
+      saveElevenLabsKey?: (key: string) => Promise<void>;
       getAssemblyAIKey?: () => Promise<string | null>;
       saveAssemblyAIKey?: (key: string) => Promise<void>;
 
@@ -3066,6 +3074,32 @@ declare global {
       onDeepgramSessionEnd?: (
         callback: (data: { audioDuration?: number; text?: string }) => void
       ) => () => void;
+
+      // ElevenLabs Scribe Realtime (BYOK)
+      elevenlabsStreamingWarmup?: (
+        options?: DictationRealtimeSessionOptions
+      ) => Promise<
+        { success: boolean; alreadyWarm?: boolean; error?: string } & PolicyFailureMetadata
+      >;
+      elevenlabsStreamingStart?: (
+        options?: DictationRealtimeSessionOptions & { forceNew?: boolean }
+      ) => Promise<
+        { success: boolean; usedWarmConnection?: boolean; error?: string } & PolicyFailureMetadata
+      >;
+      elevenlabsStreamingSend?: (audioBuffer: ArrayBuffer) => void;
+      elevenlabsStreamingFinalize?: () => void;
+      elevenlabsStreamingStop?: () => Promise<{
+        success: boolean;
+        text?: string;
+        model?: string;
+        audioBytesSent?: number;
+        error?: string;
+      }>;
+      elevenlabsStreamingStatus?: () => Promise<{ isConnected: boolean; isConnecting: boolean }>;
+      onElevenLabsPartialTranscript?: (callback: (text: string) => void) => () => void;
+      onElevenLabsFinalTranscript?: (callback: (text: string) => void) => () => void;
+      onElevenLabsError?: (callback: (error: string) => void) => () => void;
+      onElevenLabsSessionEnd?: (callback: (data: { text?: string }) => void) => () => void;
 
       // Gemini Live Streaming
       geminiStreamingWarmup?: (
