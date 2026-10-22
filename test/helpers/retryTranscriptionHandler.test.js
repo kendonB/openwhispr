@@ -189,6 +189,7 @@ function buildFakeThis() {
       getMistralKey: () => "mk-mistral",
       getXaiKey: () => "xk-xai",
       getTinfoilKey: () => "tk-tinfoil",
+      getElevenLabsKey: () => "test-elevenlabs",
       getCustomTranscriptionKey: () => "ck-custom",
       getCortiClientId: () => "corti-id",
       getCortiClientSecret: () => "corti-secret",
@@ -216,6 +217,28 @@ test.after(() => {
 });
 
 const invoke = (settings, id = 7) => retryHandler({ sender: {} }, id, settings);
+
+test("ElevenLabs dictation proxy serializes non-verbatim multipart by default", async () => {
+  fetches.length = 0;
+  await handlers.get("proxy-elevenlabs-transcription")({}, { audioBuffer: Buffer.from("audio") });
+  assert.equal(fetches.length, 1);
+  assert.equal(fetches[0].init.body.get("no_verbatim"), "true");
+});
+
+for (const model of ["scribe_v2", "scribe_v2_realtime"]) {
+  test(`ElevenLabs ${model} dictation retry serializes non-verbatim multipart`, async () => {
+    fetches.length = 0;
+    const result = await invoke({
+      cloudTranscriptionProvider: "elevenlabs",
+      cloudTranscriptionModel: model,
+      cloudTranscriptionMode: "byok",
+      transcriptionMode: "providers",
+    });
+    assert.equal(result.success, true);
+    assert.equal(fetches.length, 1);
+    assert.equal(fetches[0].init.body.get("no_verbatim"), "true");
+  });
+}
 
 test("retry: corti routes to the corti client, never OpenAI", async () => {
   fetches.length = 0;
@@ -727,6 +750,18 @@ const invokeUpload = (payload) => {
   fsNode.writeFileSync(uploadTempFile, Buffer.from([1, 2, 3, 4]));
   return uploadHandler({ sender: {} }, { filePath: uploadTempFile, ...payload });
 };
+
+test("ElevenLabs upload keeps its existing verbatim multipart default", async () => {
+  fetches.length = 0;
+  const result = await invokeUpload({
+    provider: "elevenlabs",
+    model: "scribe_v2",
+    transcriptionMode: "providers",
+  });
+  assert.equal(result.success, true);
+  assert.equal(fetches.length, 1);
+  assert.equal(fetches[0].init.body.has("no_verbatim"), false);
+});
 
 test("upload: mistral sends x-api-key with a provider-validated model and no language on auto", async () => {
   fetches.length = 0;

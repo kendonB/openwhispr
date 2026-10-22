@@ -93,3 +93,44 @@ test("audio and stop are owned by their starting renderer; next recording reads 
   sender.emit("destroyed");
   assert.equal(clients[1].cleaned, true);
 });
+
+test("dictation IPC puts non-verbatim on the actual socket URL", async (t) => {
+  const { ElevenLabsStreaming } = require("../../src/helpers/elevenLabsStreaming");
+  let socket;
+  class Socket extends EventEmitter {
+    constructor(url) {
+      super();
+      this.url = url;
+      this.readyState = 1;
+      socket = this;
+      queueMicrotask(() =>
+        this.emit("message", JSON.stringify({ message_type: "session_started" }))
+      );
+    }
+    terminate() {
+      this.readyState = 3;
+    }
+  }
+  const handlers = {};
+  const client = new ElevenLabsStreaming({ WebSocketImpl: Socket });
+  t.after(() => client.cleanup());
+  registerElevenLabsStreamingIpc({
+    ipcMain: {
+      handle: (name, fn) => {
+        handlers[name] = fn;
+      },
+      on() {},
+    },
+    createStreaming: () => client,
+    getApiKey: () => "test-only-key",
+    startFailure: (error) => {
+      throw error;
+    },
+  });
+  const sender = new EventEmitter();
+  sender.isDestroyed = () => false;
+  sender.send = () => {};
+  const result = await handlers["elevenlabs-streaming-start"]({ sender }, {});
+  assert.equal(result.success, true);
+  assert.equal(new URL(socket.url).searchParams.get("no_verbatim"), "true");
+});

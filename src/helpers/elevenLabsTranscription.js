@@ -10,7 +10,14 @@ const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
 const context = { provider: "ElevenLabs", surface: "transcription", model: "scribe_v2" };
 
 async function transcribeWithElevenLabs(
-  { audioBuffer, apiKey, language, contentType = "audio/webm", fileName = "audio.webm" },
+  {
+    audioBuffer,
+    apiKey,
+    language,
+    contentType = "audio/webm",
+    fileName = "audio.webm",
+    noVerbatim = false,
+  },
   fetchImpl = (url, init) => net.fetch(url, init)
 ) {
   if (!apiKey?.trim()) throw providerError(C.KEY_MISSING, context);
@@ -20,6 +27,7 @@ async function transcribeWithElevenLabs(
   const body = new FormData();
   body.append("file", new Blob([audio], { type: contentType }), fileName);
   body.append("model_id", "scribe_v2");
+  if (noVerbatim) body.append("no_verbatim", "true");
   body.append("tag_audio_events", "false");
   body.append("timestamps_granularity", "none");
   if (language && language !== "auto") body.append("language_code", language.split("-")[0]);

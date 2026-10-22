@@ -4,8 +4,13 @@ const { EventEmitter } = require("node:events");
 const createMeetingTranscriptionLifecycle = require("../../src/helpers/meetingTranscriptionLifecycle");
 
 class MeetingSocket extends EventEmitter {
-  constructor(_url, options) {
+  constructor(url, options) {
     super();
+    assert.equal(
+      new URL(url).searchParams.has("no_verbatim"),
+      false,
+      "meeting keeps its verbatim default"
+    );
     this.options = options;
     this.readyState = 1;
     this.bufferedAmount = 0;

@@ -5049,6 +5049,7 @@ class IPCHandlers {
       serializeIpcError(async (_event, { audioBuffer, language, contentType, fileName }) =>
         transcribeWithElevenLabs({
           audioBuffer,
+          noVerbatim: true,
           language,
           contentType,
           fileName,
@@ -7053,6 +7054,7 @@ class IPCHandlers {
         } else if (route.transport === "proxied" && route.provider === "elevenlabs") {
           const { text, model } = await transcribeWithElevenLabs({
             audioBuffer: buffer,
+            noVerbatim: true,
             language: route.language,
             apiKey: this.environmentManager.getElevenLabsKey(),
           });

@@ -24,7 +24,7 @@ const ERROR_CODES = {
   error: C.ERROR,
 };
 
-function buildElevenLabsUrl({ sampleRate = 16000, language } = {}) {
+function buildElevenLabsUrl({ sampleRate = 16000, language, noVerbatim = false } = {}) {
   if (![8000, 16000, 22050, 24000, 44100, 48000].includes(sampleRate)) {
     throw providerError(C.BAD_REQUEST, context);
   }
@@ -32,6 +32,7 @@ function buildElevenLabsUrl({ sampleRate = 16000, language } = {}) {
   url.searchParams.set("model_id", MODEL);
   url.searchParams.set("audio_format", `pcm_${sampleRate}`);
   url.searchParams.set("commit_strategy", "manual");
+  if (noVerbatim) url.searchParams.set("no_verbatim", "true");
   if (language && language !== "auto")
     url.searchParams.set("language_code", language.split("-")[0]);
   return url.toString();
@@ -54,10 +55,10 @@ class ElevenLabsStreaming {
     this.completedSegments = [];
   }
 
-  connect({ apiKey, sampleRate = 16000, language } = {}) {
+  connect({ apiKey, sampleRate = 16000, language, noVerbatim = false } = {}) {
     if (this.ws || this.isConnecting) return Promise.reject(providerError(C.BAD_REQUEST, context));
     if (!apiKey?.trim()) return Promise.reject(providerError(C.KEY_MISSING, context));
-    const url = buildElevenLabsUrl({ sampleRate, language });
+    const url = buildElevenLabsUrl({ sampleRate, language, noVerbatim });
     this.sampleRate = sampleRate;
     this.isConnecting = true;
     this.failure = null;

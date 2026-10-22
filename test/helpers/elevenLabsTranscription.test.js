@@ -13,6 +13,11 @@ test("batch sends multipart Scribe v2, preserves file format and returns final t
       assert.equal(init.headers["Content-Type"], undefined);
       assert.equal(init.redirect, "error");
       assert.equal(init.body.get("model_id"), "scribe_v2");
+      assert.equal(
+        init.body.has("no_verbatim"),
+        false,
+        "shared upload helper preserves its default"
+      );
       assert.equal(init.body.get("language_code"), "fr");
       assert.equal(init.body.get("tag_audio_events"), "false");
       const file = init.body.get("file");
@@ -134,4 +139,11 @@ test("batch classifies deadline expiry and rejects malformed JSON", async () => 
     transcribeWithElevenLabs(input, async () => new Response("not json")),
     { code: "PROVIDER_ERROR" }
   );
+});
+
+test("batch non-verbatim opt-in serializes the provider field", async () => {
+  await transcribeWithElevenLabs({ ...input, noVerbatim: true }, async (_url, init) => {
+    assert.equal(init.body.get("no_verbatim"), "true");
+    return Response.json({ text: "Clean dictation." });
+  });
 });
