@@ -37,7 +37,7 @@ function registerElevenLabsStreamingIpc({ ipcMain, createStreaming, getApiKey, s
         apiKey: getApiKey(),
         sampleRate: options.sampleRate,
         language: options.language,
-        noVerbatim: true, // Dictation removes fillers; shared meeting clients keep their default.
+        noVerbatim: true, // Explicit dictation default, matching meeting realtime sessions.
       });
       return { success: true, usedWarmConnection: false };
     } catch (error) {

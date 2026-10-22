@@ -24,7 +24,8 @@ const ERROR_CODES = {
   error: C.ERROR,
 };
 
-function buildElevenLabsUrl({ sampleRate = 16000, language, noVerbatim = false } = {}) {
+// All realtime uses (dictation and both meeting streams) remove fillers by default.
+function buildElevenLabsUrl({ sampleRate = 16000, language, noVerbatim = true } = {}) {
   if (![8000, 16000, 22050, 24000, 44100, 48000].includes(sampleRate)) {
     throw providerError(C.BAD_REQUEST, context);
   }
@@ -55,7 +56,7 @@ class ElevenLabsStreaming {
     this.completedSegments = [];
   }
 
-  connect({ apiKey, sampleRate = 16000, language, noVerbatim = false } = {}) {
+  connect({ apiKey, sampleRate = 16000, language, noVerbatim = true } = {}) {
     if (this.ws || this.isConnecting) return Promise.reject(providerError(C.BAD_REQUEST, context));
     if (!apiKey?.trim()) return Promise.reject(providerError(C.KEY_MISSING, context));
     const url = buildElevenLabsUrl({ sampleRate, language, noVerbatim });

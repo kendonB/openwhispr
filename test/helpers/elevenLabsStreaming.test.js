@@ -46,6 +46,7 @@ test("protocol uses fixed endpoint, model, PCM and header auth; readiness waits 
   assert.equal(url.searchParams.get("model_id"), "scribe_v2_realtime");
   assert.equal(url.searchParams.get("audio_format"), "pcm_16000");
   assert.equal(url.searchParams.get("commit_strategy"), "manual");
+  assert.equal(url.searchParams.get("no_verbatim"), "true");
   assert.equal(url.searchParams.has("language_code"), false);
   assert.throws(() => buildElevenLabsUrl({ sampleRate: 1234 }));
   const client = new ElevenLabsStreaming({ WebSocketImpl: Socket });
@@ -271,4 +272,14 @@ test("permanent active failures stop a meeting instead of accepting audio into a
     assert.equal(client.sendAudio(audio), false);
     assert.equal(client.isConnected, false);
   }
+});
+
+test("an explicit verbatim override omits no_verbatim on the actual socket", async (t) => {
+  const client = new ElevenLabsStreaming({ WebSocketImpl: Socket });
+  t.after(() => client.cleanup());
+  const connecting = client.connect({ apiKey: "test-only-key", noVerbatim: false });
+  const socket = Socket.instances.at(-1);
+  assert.equal(new URL(socket.url).searchParams.has("no_verbatim"), false);
+  socket.receive({ message_type: "session_started" });
+  await connecting;
 });

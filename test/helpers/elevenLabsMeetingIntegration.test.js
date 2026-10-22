@@ -7,9 +7,9 @@ class MeetingSocket extends EventEmitter {
   constructor(url, options) {
     super();
     assert.equal(
-      new URL(url).searchParams.has("no_verbatim"),
-      false,
-      "meeting keeps its verbatim default"
+      new URL(url).searchParams.get("no_verbatim"),
+      "true",
+      "both meeting streams use non-verbatim"
     );
     this.options = options;
     this.readyState = 1;
@@ -93,4 +93,30 @@ test("meeting lifecycle routes independent 24kHz mic/system streams and flushes 
     { source: "system", text: "Remote speaker.", timestamp: 2000 },
   ]);
   assert.ok(streams.every((client) => !client.isConnected && client.ws === null));
+});
+
+test("replacement meeting mic/system sockets preserve non-verbatim on recovery", async () => {
+  const { getMeetingStreamingClient } = require("../../src/helpers/meetingStreamingProviders");
+  const Client = getMeetingStreamingClient("elevenlabs-realtime");
+  const originals = [];
+  const replacements = [];
+  try {
+    for (const source of ["mic", "system"]) {
+      const original = new Client({ WebSocketImpl: MeetingSocket });
+      originals.push(original);
+      await original.connect({ apiKey: "test-only-key", sampleRate: 24000 });
+      const oldSocket = original.ws;
+      original.cleanup();
+      // Main-process recovery constructs fresh clients with the same options.
+      const replacement = new Client({ WebSocketImpl: MeetingSocket });
+      replacements.push(replacement);
+      await replacement.connect({ apiKey: "test-only-key", sampleRate: 24000 });
+      assert.notEqual(replacement.ws, oldSocket, source);
+      replacement.ws.nextText = `${source} recovered.`;
+      replacement.sendAudio(Buffer.alloc(4800));
+      assert.deepEqual(await replacement.disconnect(), { text: `${source} recovered.` });
+    }
+  } finally {
+    for (const client of [...originals, ...replacements]) client.cleanup();
+  }
 });
