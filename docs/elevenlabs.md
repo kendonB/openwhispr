@@ -30,7 +30,7 @@ main process using the `xi-api-key` header, never URL parameters.
   for `session_started` before sending queued audio, commits every 20 seconds and
   at stop, and waits up to eight seconds for outstanding committed transcripts.
   Partial or supplementary timestamp events cannot become a successful final
-  result. Errors and finalization timeouts use the existing retained-audio batch
+  result. Stop errors and finalization timeouts use the existing retained-audio batch
   recovery path where a recording is available.
 - Batch requests use multipart uploads, preserve the recorded/file MIME type,
   disable audio-event tags, and return the API's `text`. The app retains its existing
@@ -41,6 +41,13 @@ main process using the `xi-api-key` header, never URL parameters.
   ElevenLabs → Scribe v2 Realtime in Note Recording settings. Microphone and system
   audio use independent 24 kHz PCM streams with the same saved API key; both streams
   incur provider usage. Mic-only recording is available when system capture is not.
+- Meeting streams commit after 1.5 seconds of low-volume audio following speech,
+  with a two-second minimum segment and a 20-second maximum. This uses local PCM
+  energy detection, not ElevenLabs' server VAD. Explicit commits let stop wait for
+  every requested result; server VAD events cannot be distinguished from a reply
+  to the final commit. Background noise can prevent pause detection, in which case
+  the 20-second maximum applies. Audio not yet committed when a connection drops
+  can still be lost.
 - Meeting commits carry per-segment audio-aligned timestamps and retain source
   labels for the app's existing speaker/diarization pipeline. Stop waits for both
   final commits and persists the tail alongside earlier speaker-decorated segments.
@@ -56,7 +63,7 @@ main process using the `xi-api-key` header, never URL parameters.
 
 ## Protocol references
 
-Implementation checked against ElevenLabs' official documentation on 2026-10-21:
+Implementation checked against ElevenLabs' official documentation on 2026-10-22:
 
 - [Batch transcription API](https://elevenlabs.io/docs/api-reference/speech-to-text/convert)
 - [Realtime WebSocket API](https://elevenlabs.io/docs/api-reference/speech-to-text/v-1-speech-to-text-realtime)

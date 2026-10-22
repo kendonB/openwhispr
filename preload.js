@@ -886,14 +886,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
   ),
 
   // ElevenLabs Scribe Realtime (BYOK)
-  elevenlabsStreamingWarmup: (options) =>
-    ipcRenderer.invoke("elevenlabs-streaming-warmup", options),
   elevenlabsStreamingStart: (options) => ipcRenderer.invoke("elevenlabs-streaming-start", options),
   elevenlabsStreamingSend: (audioBuffer) =>
     ipcRenderer.send("elevenlabs-streaming-send", audioBuffer),
-  elevenlabsStreamingFinalize: () => ipcRenderer.send("elevenlabs-streaming-finalize"),
   elevenlabsStreamingStop: () => ipcRenderer.invoke("elevenlabs-streaming-stop"),
-  elevenlabsStreamingStatus: () => ipcRenderer.invoke("elevenlabs-streaming-status"),
   onElevenLabsPartialTranscript: registerListener(
     "elevenlabs-partial-transcript",
     (callback) => (_event, text) => callback(text)
@@ -905,10 +901,6 @@ contextBridge.exposeInMainWorld("electronAPI", {
   onElevenLabsError: registerListener(
     "elevenlabs-error",
     (callback) => (_event, error) => callback(error)
-  ),
-  onElevenLabsSessionEnd: registerListener(
-    "elevenlabs-session-end",
-    (callback) => (_event, data) => callback(data)
   ),
 
   // Gemini Live Streaming

@@ -11790,7 +11790,7 @@ class IPCHandlers {
 
     require("./elevenLabsStreamingIpc").registerElevenLabsStreamingIpc({
       ipcMain,
-      createStreaming: () => new ElevenLabsStreaming(),
+      createStreaming: () => new ElevenLabsStreaming({ commitOnSilence: false }),
       getApiKey: () => this.environmentManager.getElevenLabsKey(),
       startFailure: (error) => ({ success: false, ...ipcErrorFields(error) }),
     });

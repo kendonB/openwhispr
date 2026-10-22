@@ -31,9 +31,6 @@ function setup() {
         sendAudio: function (audio) {
           this.sent.push(audio);
         },
-        finalize: function () {
-          this.finalized = true;
-        },
         disconnect: async function () {
           this.isConnected = false;
           return { text: "Final" };
@@ -41,9 +38,6 @@ function setup() {
         cleanup: function () {
           this.isConnected = false;
           this.cleaned = true;
-        },
-        getStatus: function () {
-          return { isConnected: this.isConnected };
         },
       };
       clients.push(client);
@@ -60,10 +54,8 @@ function setup() {
       handlers[`elevenlabs-streaming-${name}`]({ sender: from }, options),
   };
 }
-test("warmup is free; start reads saved key, ignores injected credentials, and forwards finals", async () => {
+test("start reads saved key, ignores injected credentials, and forwards finals", async () => {
   const { call, clients, sender } = setup();
-  await call("warmup");
-  assert.equal(clients.length, 0);
   await call("start", { apiKey: "injected", language: "fr" });
   assert.equal(clients[0].options.apiKey, "fake-first-key");
   const emitted = [];
@@ -78,14 +70,10 @@ test("audio and stop are owned by their starting renderer; next recording reads 
   await call("start");
   assert.equal((await call("start")).success, false);
   call("send", Buffer.alloc(2), {});
-  call("finalize", undefined, {});
   assert.equal((await call("stop", undefined, {})).success, false);
   assert.equal(clients[0].sent.length, 0);
-  assert.equal(clients[0].finalized, undefined);
   call("send", Buffer.alloc(2));
-  call("finalize");
   assert.equal(clients[0].sent.length, 1);
-  assert.equal(clients[0].finalized, true);
   await call("stop");
   setKey("fake-rotated-key");
   await call("start");
