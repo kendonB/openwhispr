@@ -1,11 +1,14 @@
 const WebSocket = require("ws");
+const modelRegistryData = require("../models/modelRegistryData.json");
 const {
   providerError,
   providerHttpError,
   PROVIDER_ERROR_CODES: C,
 } = require("./providerHttpErrors");
 
-const MODEL = "scribe_v2_realtime";
+const MODEL = modelRegistryData.transcriptionProviders
+  .find((provider) => provider.id === "elevenlabs")
+  .models.find((model) => model.streaming).id;
 const context = { provider: "ElevenLabs", surface: "transcription", model: MODEL };
 const ERROR_CODES = {
   auth_error: C.AUTH_FAILED,
@@ -23,9 +26,21 @@ const ERROR_CODES = {
   chunk_size_exceeded: C.PAYLOAD_TOO_LARGE,
   error: C.ERROR,
 };
+// Refusals a new session would meet again. Anything else mid-session is worth a reconnect.
+const PERMANENT_CODES = new Set([
+  C.AUTH_FAILED,
+  C.QUOTA_EXHAUSTED,
+  C.ACCESS_DENIED,
+  C.BAD_REQUEST,
+  C.PAYLOAD_TOO_LARGE,
+]);
+// The server commits by itself after ~36 s of uncommitted audio.
+const MANUAL_COMMIT_SECONDS = 20;
+const MEETING_SILENCE_SECONDS = 1.5;
+const SPEECH_RMS_THRESHOLD = 0.003;
 
-// All realtime uses (dictation and both meeting streams) remove fillers by default.
-function buildElevenLabsUrl({ sampleRate = 16000, language, noVerbatim = true } = {}) {
+// Fillers are removed in dictation and meetings alike.
+function buildElevenLabsUrl({ sampleRate = 16000, language } = {}) {
   if (![8000, 16000, 22050, 24000, 44100, 48000].includes(sampleRate)) {
     throw providerError(C.BAD_REQUEST, context);
   }
@@ -33,20 +48,26 @@ function buildElevenLabsUrl({ sampleRate = 16000, language, noVerbatim = true } 
   url.searchParams.set("model_id", MODEL);
   url.searchParams.set("audio_format", `pcm_${sampleRate}`);
   url.searchParams.set("commit_strategy", "manual");
-  if (noVerbatim) url.searchParams.set("no_verbatim", "true");
+  url.searchParams.set("no_verbatim", "true");
   if (language && language !== "auto")
     url.searchParams.set("language_code", language.split("-")[0]);
   return url.toString();
 }
 
-// Dictation uses explicit commits. Send every 20s (before the server's ~36s
-// automatic segmentation) and once at stop, then wait for ALL commit replies.
-// There is no separate final_transcript event in Scribe's public protocol.
+// Manual commits let stop count every outstanding reply. Meetings also commit
+// after a pause; server VAD replies have no IDs to distinguish them from a stop
+// reply. The 20 s limit avoids the server's automatic ~36 s commit.
 class ElevenLabsStreaming {
-  constructor({ WebSocketImpl = WebSocket, connectTimeoutMs = 15000, finalTimeoutMs = 8000 } = {}) {
+  constructor({
+    WebSocketImpl = WebSocket,
+    connectTimeoutMs = 15000,
+    finalTimeoutMs = 8000,
+    commitOnSilence = true,
+  } = {}) {
     this.WebSocketImpl = WebSocketImpl;
     this.connectTimeoutMs = connectTimeoutMs;
     this.finalTimeoutMs = finalTimeoutMs;
+    this.commitOnSilence = commitOnSilence;
     this.currentModel = MODEL;
     this.isConnected = false;
     this.isConnecting = false;
@@ -56,25 +77,26 @@ class ElevenLabsStreaming {
     this.completedSegments = [];
   }
 
-  connect({ apiKey, sampleRate = 16000, language, noVerbatim = true } = {}) {
+  connect({ apiKey, sampleRate = 16000, language } = {}) {
     if (this.ws || this.isConnecting) return Promise.reject(providerError(C.BAD_REQUEST, context));
     if (!apiKey?.trim()) return Promise.reject(providerError(C.KEY_MISSING, context));
-    const url = buildElevenLabsUrl({ sampleRate, language, noVerbatim });
+    const url = buildElevenLabsUrl({ sampleRate, language });
     this.sampleRate = sampleRate;
     this.isConnecting = true;
     this.failure = null;
     this.finalizing = false;
-    this.pendingCommits = 0;
+    this.finalPromise = null;
+    this.segmentBytes = 0;
+    this.silenceBytes = 0;
+    this.segmentHasSpeech = false;
     this.commitOffsets = [];
     this.nextSegmentByteOffset = 0;
     this.sessionStartedAt = null;
     this.completedSegments = [];
-    this.segmentBytes = 0;
     this.audioBytesSent = 0;
     this.queue = [];
     this.queueBytes = 0;
     this.text = "";
-    this.finalPromise = null;
     return new Promise((resolve, reject) => {
       this.rejectConnect = reject;
       this.connectTimer = setTimeout(() => this.fail(C.TIMEOUT), this.connectTimeoutMs);
@@ -109,21 +131,23 @@ class ElevenLabsStreaming {
           if (this.failure) reject(this.failure);
           else resolve();
         } else if (data.message_type === "partial_transcript") {
-          if (typeof data.text === "string") this.onPartialTranscript?.(data.text);
+          if (typeof data.text !== "string") return;
+          this.onPartialTranscript?.(data.text);
         } else if (data.message_type === "committed_transcript") {
           if (typeof data.text !== "string") return this.fail(C.ERROR);
-          const segmentByteOffset = this.commitOffsets.shift() ?? this.nextSegmentByteOffset;
-          if (data.text.trim()) {
-            this.completedSegments.push(data.text.trim());
+          const text = data.text.trim();
+          const startBytes = this.commitOffsets.shift();
+          if (startBytes === undefined) return this.fail(C.ERROR);
+          if (text) {
+            this.completedSegments.push(text);
             this.text = this.completedSegments.join(" ");
-            const timestamp =
-              this.sessionStartedAt == null
-                ? Date.now()
-                : this.sessionStartedAt + (segmentByteOffset / (this.sampleRate * 2)) * 1000;
+            const timestamp = this.sessionStartedAt + (startBytes / (this.sampleRate * 2)) * 1000;
             this.onFinalTranscript?.(this.text, timestamp);
+          } else {
+            // A commit of only fillers or silence still settles its partial.
+            this.onPartialTranscript?.("");
           }
-          if (this.pendingCommits > 0) this.pendingCommits--;
-          if (this.finalizing && this.pendingCommits === 0) this.resolveFinal?.();
+          if (this.finalizing && this.commitOffsets.length === 0) this.resolveFinal?.();
         }
         // Timestamp/entity events supplement the same commit; never append twice.
       });
@@ -148,9 +172,10 @@ class ElevenLabsStreaming {
       this.fail(C.BAD_REQUEST);
       return false;
     }
+    const bytesPerSecond = this.sampleRate * 2;
     if (this.isConnecting) {
-      // Bound memory; failing triggers the recorder's retained-audio batch fallback.
-      if (this.queueBytes + buffer.length > this.sampleRate * 2 * 5) {
+      // Bound memory while the handshake is pending.
+      if (this.queueBytes + buffer.length > bytesPerSecond * 5) {
         this.fail(C.UNAVAILABLE);
         return false;
       }
@@ -160,11 +185,27 @@ class ElevenLabsStreaming {
     }
     if (!this.isConnected) return false;
     if (this.sessionStartedAt == null) this.sessionStartedAt = Date.now();
-    // At most one second of PCM per message, including buffered cold-start audio.
-    for (let offset = 0; offset < buffer.length; offset += this.sampleRate * 2) {
-      const chunk = buffer.subarray(offset, offset + this.sampleRate * 2);
+    // Analyze 50 ms windows even when replaying buffered audio in larger blocks.
+    const chunkBytes = this.commitOnSilence ? Math.floor(this.sampleRate / 20) * 2 : bytesPerSecond;
+    for (let offset = 0; offset < buffer.length; offset += chunkBytes) {
+      const chunk = buffer.subarray(offset, offset + chunkBytes);
       this.segmentBytes += chunk.length;
-      const commit = this.segmentBytes >= this.sampleRate * 2 * 20;
+      if (this.commitOnSilence) {
+        let energy = 0;
+        for (let i = 0; i < chunk.length; i += 2) {
+          const sample = chunk.readInt16LE(i) / 32768;
+          energy += sample * sample;
+        }
+        const speech = Math.sqrt(energy / (chunk.length / 2)) >= SPEECH_RMS_THRESHOLD;
+        this.segmentHasSpeech ||= speech;
+        this.silenceBytes = speech ? 0 : this.silenceBytes + chunk.length;
+      }
+      const commit =
+        this.segmentBytes >= bytesPerSecond * MANUAL_COMMIT_SECONDS ||
+        (this.commitOnSilence &&
+          this.segmentHasSpeech &&
+          this.segmentBytes >= bytesPerSecond * 2 &&
+          this.silenceBytes >= bytesPerSecond * MEETING_SILENCE_SECONDS);
       if (!this.sendChunk(chunk, commit)) return false;
       this.audioBytesSent += chunk.length;
     }
@@ -181,10 +222,11 @@ class ElevenLabsStreaming {
       return false;
     }
     if (commit) {
-      this.pendingCommits++;
       this.commitOffsets.push(this.nextSegmentByteOffset);
       this.nextSegmentByteOffset = this.audioBytesSent + buffer.length;
       this.segmentBytes = 0;
+      this.silenceBytes = 0;
+      this.segmentHasSpeech = false;
     }
     const socket = this.ws;
     try {
@@ -206,31 +248,33 @@ class ElevenLabsStreaming {
     }
   }
 
+  // Commits the tail; settles once every commit has its committed transcript.
   finalize() {
-    if (this.finalizing || this.failure) return;
-    if (!this.isConnected) return;
+    if (this.finalPromise) return this.finalPromise;
+    if (this.failure) return Promise.reject(this.failure);
+    if (!this.isConnected) return Promise.reject(providerError(C.NO_RESPONSE, context));
     this.finalizing = true;
     this.finalPromise = new Promise((resolve, reject) => {
-      this.resolveFinal = resolve;
+      this.resolveFinal = () => {
+        clearTimeout(this.finalTimer);
+        this.resolveFinal = null;
+        this.rejectFinal = null;
+        resolve();
+      };
       this.rejectFinal = reject;
     });
-    // finalize is fire-and-forget over IPC; disconnect consumes the same promise.
-    this.finalPromise.catch(() => {});
     this.finalTimer = setTimeout(() => this.fail(C.TIMEOUT), this.finalTimeoutMs);
     if (this.segmentBytes > 0) this.sendChunk(Buffer.alloc(0), true);
-    if (this.pendingCommits === 0) this.resolveFinal();
+    // A failed tail commit has already rejected the promise and cleared resolveFinal.
+    if (this.commitOffsets.length === 0) this.resolveFinal?.();
+    return this.finalPromise;
   }
 
-  async disconnect(waitForFinal = true) {
+  async disconnect() {
     try {
-      if (waitForFinal) {
-        if (this.failure) throw this.failure;
-        if (this.isConnecting || (!this.isConnected && !this.finalPromise))
-          throw providerError(C.NO_RESPONSE, context);
-        this.finalize();
-        if (this.finalPromise) await this.finalPromise;
-        if (this.failure) throw this.failure;
-      }
+      if (this.failure) throw this.failure;
+      if (!this.isConnected) throw providerError(C.NO_RESPONSE, context);
+      await this.finalize();
       return { text: this.text };
     } finally {
       this.cleanup();
@@ -240,16 +284,15 @@ class ElevenLabsStreaming {
   fail(code) {
     if (this.failure) return;
     const error = code instanceof Error ? code : providerError(code, context);
-    const activeFailure = this.isConnected && !this.finalizing;
-    const recoverable =
-      activeFailure && [C.UNREACHABLE, C.UNAVAILABLE, C.TIMEOUT].includes(error.code);
+    // Outside an active session, connect() or disconnect() rejects with the error instead.
+    const active = this.isConnected && !this.finalizing;
     this.failure = error;
     this.rejectConnect?.(error);
     this.rejectFinal?.(error);
     this.cleanup();
-    this.onError?.(error);
-    if (recoverable) this.onConnectionLost?.(error);
-    else if (activeFailure) this.onFatalError?.(error);
+    if (!active) return;
+    const handler = PERMANENT_CODES.has(error.code) ? this.onFatalError : this.onConnectionLost;
+    (handler || this.onError)?.(error);
   }
 
   cleanup() {
@@ -267,10 +310,6 @@ class ElevenLabsStreaming {
     const socket = this.ws;
     this.ws = null;
     socket?.terminate();
-  }
-
-  getStatus() {
-    return { isConnected: this.isConnected, isConnecting: this.isConnecting };
   }
 }
 

@@ -179,7 +179,6 @@ export const XAI_STT_LANGUAGES = new Set([
 // two together for every shipping model.
 export function resolveByokModel(provider: string, configuredModel?: string): string {
   const trimmed = (configuredModel || "").trim();
-  if (provider === "elevenlabs") return trimmed === "scribe_v2_realtime" ? trimmed : "scribe_v2";
   if (provider === "custom") return trimmed || "whisper-1";
   if (trimmed) {
     const matchesProvider =
@@ -193,7 +192,8 @@ export function resolveByokModel(provider: string, configuredModel?: string): st
       (provider === "gemini" && trimmed.startsWith("gemini-")) ||
       (provider === "deepgram" && (trimmed.startsWith("nova-") || trimmed.startsWith("flux-"))) ||
       (provider === "assemblyai" &&
-        (trimmed.startsWith("universal-") || trimmed.startsWith("slam-")));
+        (trimmed.startsWith("universal-") || trimmed.startsWith("slam-"))) ||
+      (provider === "elevenlabs" && trimmed.startsWith("scribe_"));
     if (matchesProvider) return trimmed;
   }
   if (provider === "groq") return "whisper-large-v3-turbo";
@@ -203,6 +203,7 @@ export function resolveByokModel(provider: string, configuredModel?: string): st
   if (provider === "gemini") return "gemini-3.5-transcribe";
   if (provider === "deepgram") return "nova-3";
   if (provider === "assemblyai") return "universal-3-5-pro";
+  if (provider === "elevenlabs") return "scribe_v2";
   return "gpt-transcribe";
 }
 
@@ -334,23 +335,19 @@ export function resolveTranscriptionRoute({
   const provider = s.cloudTranscriptionProvider || "openai";
   const model = resolveByokModel(provider, request?.model ?? s.cloudTranscriptionModel);
 
-  if (provider === "tinfoil" || provider === "mistral" || provider === "xai") {
+  if (
+    provider === "tinfoil" ||
+    provider === "mistral" ||
+    provider === "xai" ||
+    provider === "elevenlabs"
+  ) {
     return {
       transport: "proxied",
       provider,
-      // Tinfoil's attested client resolves its own model; xAI's API takes none.
+      // Tinfoil's and ElevenLabs' clients resolve their own batch model; xAI's API takes none.
       model: provider === "mistral" ? model : provider === "xai" ? "grok-stt" : null,
       language:
         provider === "xai" && language && !XAI_STT_LANGUAGES.has(language) ? undefined : language,
-      sizeCapBytes: BYOK_FILE_SIZE_LIMIT,
-    };
-  }
-  if (provider === "elevenlabs") {
-    return {
-      transport: "proxied",
-      provider,
-      model: "scribe_v2",
-      language,
       sizeCapBytes: BYOK_FILE_SIZE_LIMIT,
     };
   }

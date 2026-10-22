@@ -2536,8 +2536,6 @@ test("ElevenLabs stop failure never publishes earlier commits or unconfirmed par
   manager.getStreamingProviderName = () => "elevenlabs";
   manager.getStreamingProvider = () => ({
     requiresSuccessfulStop: true,
-    awaitsFinalTranscript: true,
-    finalize() {},
     stop: async () => ({ success: false, code: "PROVIDER_TIMEOUT", error: "Timed out" }),
   });
   const published = [],
@@ -2553,4 +2551,106 @@ test("ElevenLabs stop failure never publishes earlier commits or unconfirmed par
   assert.equal(published.length, 0);
   assert.equal(saved.length, 1);
   assert.equal(errors[0]?.code, "PROVIDER_TIMEOUT");
+});
+
+test("ElevenLabs retains opening frames while microphone recovery and the socket start are pending", async (t) => {
+  const AudioManager = await loadManagerClass(t);
+  installCapture(t);
+  const provider = AudioManager.prototype.getStreamingProvider("elevenlabs");
+  const sent = [];
+  let releaseStart;
+  const socketReady = new Promise((resolve) => {
+    releaseStart = resolve;
+  });
+  let enteredStart;
+  const startingSocket = new Promise((resolve) => {
+    enteredStart = resolve;
+  });
+  Object.assign(globalThis.window.electronAPI, {
+    onElevenLabsPartialTranscript: () => () => {},
+    onElevenLabsFinalTranscript: () => () => {},
+    onElevenLabsError: () => () => {},
+    elevenlabsStreamingSend: (pcm) => sent.push(pcm),
+    elevenlabsStreamingStart: async () => {
+      enteredStart();
+      await socketReady;
+      return { success: true };
+    },
+    elevenlabsStreamingStop: async () => ({ success: true, text: "" }),
+  });
+  const { manager } = createStartingManager(AudioManager, { providerName: "elevenlabs", provider });
+  const first = speechPcm(),
+    second = speechPcm(),
+    third = speechPcm();
+  manager.beginMicRecovery = async () => {
+    manager.streamingProcessor.port.onmessage({ data: first });
+    assert.equal(sent.length, 0);
+  };
+  const start = manager.startStreamingRecording();
+  await startingSocket;
+  manager.streamingProcessor.port.onmessage({ data: second });
+  assert.equal(sent.length, 0);
+  releaseStart();
+  assert.equal(await start, true);
+  manager.streamingProcessor.port.onmessage({ data: third });
+  assert.deepEqual(sent, [first, second, third]);
+  await manager.cancelStreamingRecording();
+});
+
+test("ElevenLabs flushes capture before stop and accepts confirmed silence without a batch upload", async (t) => {
+  const AudioManager = await loadManagerClass(t);
+  const { manager } = createFinalizingManager(AudioManager);
+  manager.getStreamingProviderName = () => "elevenlabs";
+  manager.recordingStartTime = Date.now() - 5000;
+  manager.streamingPartialText = "Um.";
+  manager.mergeRecordedSegments = async () => new Blob([new Uint8Array(100)]);
+  manager.processWithOpenAIAPI = () => assert.fail("confirmed silence must not be billed again");
+  manager.awaitStreamingTextSettled = () => assert.fail("stop supplies the confirmed result");
+  const order = [];
+  const provider = AudioManager.prototype.getStreamingProvider("elevenlabs");
+  manager.getStreamingProvider = () => provider;
+  Object.assign(globalThis.window.electronAPI, {
+    elevenlabsStreamingSend: () => order.push("tail"),
+    elevenlabsStreamingStop: async () => {
+      order.push("stop");
+      return { success: true, text: "" };
+    },
+  });
+  manager.streamingProcessor = {
+    port: {
+      postMessage() {
+        setImmediate(() => {
+          provider.send(speechPcm());
+          manager._streamingFlushResolve();
+        });
+      },
+    },
+    disconnect: () => order.push("capture-stopped"),
+  };
+  const completions = [];
+  manager.onTranscriptionComplete = (result) => completions.push(result);
+  assert.equal(await manager.stopStreamingRecording(), true);
+  assert.deepEqual(order, ["tail", "capture-stopped", "stop"]);
+  assert.equal(completions[0].text, "");
+});
+
+test("ElevenLabs never publishes a successful server result when capture failed to flush", async (t) => {
+  const AudioManager = await loadManagerClass(t);
+  const { manager } = createFinalizingManager(AudioManager);
+  const originalTimeout = globalThis.setTimeout;
+  t.mock.method(globalThis, "setTimeout", (callback, ms, ...args) =>
+    originalTimeout(callback, Math.min(ms, 10), ...args)
+  );
+  manager.streamingProcessor = { port: { postMessage() {} }, disconnect() {} };
+  manager.getStreamingProviderName = () => "elevenlabs";
+  manager.getStreamingProvider = () => ({
+    requiresSuccessfulStop: true,
+    stop: async () => ({ success: true, text: "Missing the last words" }),
+  });
+  manager.onTranscriptionComplete = () => assert.fail("capture was truncated");
+  const saved = [];
+  manager.saveFailedTranscription = async (...args) => saved.push(args);
+  await manager.stopStreamingRecording();
+  assert.equal(saved.length, 1);
+  assert.equal(manager.streamingProcessor, null);
 });

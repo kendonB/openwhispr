@@ -111,7 +111,7 @@ test("uploads, retries and dictation batch routes stay on ElevenLabs, even with 
     });
     assert.equal(route.transport, "proxied");
     assert.equal(route.provider, "elevenlabs");
-    assert.equal(route.model, "scribe_v2");
+    assert.equal(route.model, null); // The main-process client selects its batch model.
     assert.equal(route.language, "de");
   }
 });

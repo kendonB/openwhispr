@@ -497,20 +497,18 @@ const STREAMING_PROVIDERS = {
     onSessionEnd: (cb) => window.electronAPI.onGeminiSessionEnd(cb),
   },
   elevenlabs: {
+    // stop() commits the tail and returns the confirmed transcript, or fails.
     requiresSuccessfulStop: true,
-    awaitsFinalTranscript: true,
-    finalCeilingMs: 8000,
-    preferStopTranscript: true,
-    warmup: (opts) => window.electronAPI.elevenlabsStreamingWarmup(opts),
+    // Each dictation opens its own socket at start, so main has nowhere to
+    // buffer audio captured before then.
+    holdAudioUntilStarted: true,
+    warmup: async () => ({ success: true }),
     start: (opts) => window.electronAPI.elevenlabsStreamingStart(opts),
     send: (buf) => window.electronAPI.elevenlabsStreamingSend(buf),
-    finalize: () => window.electronAPI.elevenlabsStreamingFinalize(),
     stop: () => window.electronAPI.elevenlabsStreamingStop(),
-    status: () => window.electronAPI.elevenlabsStreamingStatus(),
     onPartial: (cb) => window.electronAPI.onElevenLabsPartialTranscript(cb),
     onFinal: (cb) => window.electronAPI.onElevenLabsFinalTranscript(cb),
     onError: (cb) => window.electronAPI.onElevenLabsError(cb),
-    onSessionEnd: (cb) => window.electronAPI.onElevenLabsSessionEnd(cb),
   },
   corti: {
     warmup: (opts) => window.electronAPI.cortiStreamingWarmup(opts),
@@ -4807,24 +4805,20 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       return route === "orukeet" && Boolean(isSignedInOverride ?? s.isSignedIn);
     }
 
-    if (s.cloudTranscriptionProvider === "elevenlabs") {
-      return (
-        s.cloudTranscriptionMode === "byok" &&
-        s.cloudTranscriptionModel === "scribe_v2_realtime" &&
-        !!s.elevenlabsApiKey
-      );
-    }
-
     // Corti (BYOK) streams over its own WSS — independent of OpenWhispr Cloud.
     if (s.cloudTranscriptionProvider === "corti" && s.cloudTranscriptionMode === "byok") {
       return !!(s.cortiClientId && s.cortiClientSecret);
     }
 
-    // Tinfoil realtime streams without an OpenWhispr account.
-    if (s.cloudTranscriptionProvider === "tinfoil") {
-      const provider = getTranscriptionProvider("tinfoil");
+    // Tinfoil (either mode) and ElevenLabs (BYOK) realtime stream on the user's
+    // own key, without an OpenWhispr account.
+    if (
+      s.cloudTranscriptionProvider === "tinfoil" ||
+      (s.cloudTranscriptionProvider === "elevenlabs" && s.cloudTranscriptionMode === "byok")
+    ) {
+      const provider = getTranscriptionProvider(s.cloudTranscriptionProvider);
       const model = provider?.models.find((m) => m.id === s.cloudTranscriptionModel);
-      return !!model?.streaming && !!s.tinfoilApiKey;
+      return !!model?.streaming && !!getTranscriptionApiKey(s.cloudTranscriptionProvider, s);
     }
 
     // Gemini Live streams over its own WSS on either credential; the batch
@@ -5272,7 +5266,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
           providerName,
           cloudTranscriptionMode: getSettings().cloudTranscriptionMode,
         });
-      let heldFrames = null;
+      let heldFrames = provider.holdAudioUntilStarted ? [] : null;
 
       this.streamingProcessor.port.onmessage = (event) => {
         // The worklet posts its remaining PCM followed by a "flushed" sentinel
@@ -5351,7 +5345,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         }
       });
 
-      const sessionEndCleanup = provider.onSessionEnd((data) => {
+      const sessionEndCleanup = provider.onSessionEnd?.((data) => {
         if (!ownsSession()) return;
         logger.debug("Streaming session ended", data, "streaming");
         if (data.text) {
@@ -5766,11 +5760,15 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     const provider = this.getStreamingProvider(providerName);
     let acknowledgedFinal = null;
+    let captureFlushFailed = false;
     let finalAcknowledged = false;
     let orukeetFinal = null;
     // The worklet emits PCM followed by "flushed" on the same message port.
     // IPC sends and the finalize invoke preserve that order in the main process.
-    if (this.streamingProcessor && provider.finalizeAcknowledged) {
+    if (
+      this.streamingProcessor &&
+      (provider.finalizeAcknowledged || provider.requiresSuccessfulStop)
+    ) {
       const processor = this.streamingProcessor;
       let watchdog;
       const flushed = new Promise((resolve, reject) => {
@@ -5786,6 +5784,7 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       } catch (error) {
         // Incomplete capture must use the retained recording, never commit a
         // truncated stream. Keep cleanup running so the microphone is released.
+        captureFlushFailed = true;
         acknowledgedFinal = Promise.resolve({ success: false, error: error.message });
       } finally {
         clearTimeout(watchdog);
@@ -5794,10 +5793,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
         this.streamingProcessor = null;
       }
       if (wasCancelled()) return abandonFinalization();
-      acknowledgedFinal ||= provider.finalize().catch((error) => ({
-        success: false,
-        error: error.message,
-      }));
+      if (provider.finalizeAcknowledged) {
+        acknowledgedFinal ||= provider.finalize().catch((error) => ({
+          success: false,
+          error: error.message,
+        }));
+      }
     } else if (this.streamingProcessor) {
       try {
         this.streamingProcessor.port.postMessage("stop");
@@ -5849,7 +5850,9 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
 
     // 2. Wait for flushed buffer to travel: port -> main thread -> IPC -> WebSocket -> server.
     //    Then mark streaming done so no further audio is forwarded.
-    if (!provider.finalizeAcknowledged) await new Promise((resolve) => setTimeout(resolve, 120));
+    if (!provider.finalizeAcknowledged && !provider.requiresSuccessfulStop) {
+      await new Promise((resolve) => setTimeout(resolve, 120));
+    }
     if (wasCancelled()) return abandonFinalization();
     this.isStreaming = false;
     const tFlush = performance.now();
@@ -5866,10 +5869,10 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
       if (!result?.success) {
         logger.warn("Streaming finalization failed", { error: result?.error }, "streaming");
       }
-    } else if (provider.awaitsFinalTranscript) {
+    } else if (!provider.requiresSuccessfulStop && provider.awaitsFinalTranscript) {
       provider.finalize?.();
       await this.awaitStreamingTextSettled(provider.finalCeilingMs);
-    } else {
+    } else if (!provider.requiresSuccessfulStop) {
       provider.finalize?.();
       await new Promise((resolve) => setTimeout(resolve, 300));
     }
@@ -5882,10 +5885,12 @@ registerProcessor("pcm-streaming-processor", PCMStreamingProcessor);
     });
     const tTerminate = performance.now();
 
-    const unconfirmedStream = provider.requiresSuccessfulStop && stopResult?.success !== true;
+    const unconfirmedStream =
+      provider.requiresSuccessfulStop && (captureFlushFailed || stopResult?.success !== true);
+    if (provider.requiresSuccessfulStop) finalAcknowledged = !unconfirmedStream;
     if (unconfirmedStream) this._streamingFailoverReason = "stream_no_final";
     finalText = provider.requiresSuccessfulStop
-      ? stopResult?.success === true
+      ? !unconfirmedStream
         ? stopResult.text || ""
         : ""
       : (provider.preferStopTranscript && stopResult?.text) || this.streamingFinalText || "";

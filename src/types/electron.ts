@@ -3076,18 +3076,12 @@ declare global {
       ) => () => void;
 
       // ElevenLabs Scribe Realtime (BYOK)
-      elevenlabsStreamingWarmup?: (
-        options?: DictationRealtimeSessionOptions
-      ) => Promise<
-        { success: boolean; alreadyWarm?: boolean; error?: string } & PolicyFailureMetadata
-      >;
       elevenlabsStreamingStart?: (
         options?: DictationRealtimeSessionOptions & { forceNew?: boolean }
       ) => Promise<
         { success: boolean; usedWarmConnection?: boolean; error?: string } & PolicyFailureMetadata
       >;
       elevenlabsStreamingSend?: (audioBuffer: ArrayBuffer) => void;
-      elevenlabsStreamingFinalize?: () => void;
       elevenlabsStreamingStop?: () => Promise<{
         success: boolean;
         text?: string;
@@ -3095,11 +3089,9 @@ declare global {
         audioBytesSent?: number;
         error?: string;
       }>;
-      elevenlabsStreamingStatus?: () => Promise<{ isConnected: boolean; isConnecting: boolean }>;
       onElevenLabsPartialTranscript?: (callback: (text: string) => void) => () => void;
       onElevenLabsFinalTranscript?: (callback: (text: string) => void) => () => void;
       onElevenLabsError?: (callback: (error: string) => void) => () => void;
-      onElevenLabsSessionEnd?: (callback: (data: { text?: string }) => void) => () => void;
 
       // Gemini Live Streaming
       geminiStreamingWarmup?: (

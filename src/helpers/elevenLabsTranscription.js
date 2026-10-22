@@ -1,4 +1,5 @@
 const { net } = require("electron");
+const modelRegistryData = require("../models/modelRegistryData.json");
 const {
   providerError,
   providerHttpError,
@@ -7,7 +8,10 @@ const {
 
 const ELEVENLABS_BATCH_URL = "https://api.elevenlabs.io/v1/speech-to-text";
 const MAX_AUDIO_BYTES = 25 * 1024 * 1024;
-const context = { provider: "ElevenLabs", surface: "transcription", model: "scribe_v2" };
+const MODEL = modelRegistryData.transcriptionProviders.find(
+  (provider) => provider.id === "elevenlabs"
+).batchModel;
+const context = { provider: "ElevenLabs", surface: "transcription", model: MODEL };
 
 async function transcribeWithElevenLabs(
   {
@@ -26,7 +30,7 @@ async function transcribeWithElevenLabs(
   if (audio.length > MAX_AUDIO_BYTES) throw providerError(C.PAYLOAD_TOO_LARGE, context);
   const body = new FormData();
   body.append("file", new Blob([audio], { type: contentType }), fileName);
-  body.append("model_id", "scribe_v2");
+  body.append("model_id", MODEL);
   if (noVerbatim) body.append("no_verbatim", "true");
   body.append("tag_audio_events", "false");
   body.append("timestamps_granularity", "none");
@@ -66,7 +70,7 @@ async function transcribeWithElevenLabs(
     throw providerError(C.ERROR, context);
   }
   if (typeof data?.text !== "string") throw providerError(C.ERROR, context);
-  return { text: data.text, model: "scribe_v2" };
+  return { text: data.text, model: MODEL };
 }
 
 module.exports = { transcribeWithElevenLabs, ELEVENLABS_BATCH_URL };

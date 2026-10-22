@@ -31,7 +31,11 @@ class Socket extends EventEmitter {
 }
 const audio = Buffer.alloc(3200, 4);
 async function ready(t, options = {}) {
-  const client = new ElevenLabsStreaming({ WebSocketImpl: Socket, ...options });
+  const client = new ElevenLabsStreaming({
+    WebSocketImpl: Socket,
+    commitOnSilence: false,
+    ...options,
+  });
   t.after(() => client.cleanup());
   const connecting = client.connect({ apiKey: "fake-test-key", language: "en-US" });
   const socket = Socket.instances.at(-1);
@@ -60,7 +64,10 @@ test("protocol uses fixed endpoint, model, PCM and header auth; readiness waits 
   assert.equal(socket.sent.length, 0);
   socket.receive({ message_type: "session_started" });
   await promise;
-  assert.deepEqual(Buffer.from(socket.sent[0].audio_base_64, "base64"), audio);
+  assert.deepEqual(
+    Buffer.concat(socket.sent.map((frame) => Buffer.from(frame.audio_base_64, "base64"))),
+    audio
+  );
   assert.equal(socket.sent[0].sample_rate, 16000);
 });
 
@@ -212,7 +219,7 @@ test("multiple committed segments publish accumulated text to the existing rende
 
 test("a closing socket cannot silently discard the last audio and return earlier text", async (t) => {
   const { client, socket } = await ready(t);
-  client.sendAudio(audio);
+  client.sendAudio(Buffer.alloc(640000));
   socket.receive({ message_type: "committed_transcript", text: "Earlier." });
   socket.readyState = 2;
   assert.equal(client.sendAudio(audio), false);
@@ -246,7 +253,7 @@ test("unexpected connection loss requests meeting recovery exactly once", async 
   socket.emit("close");
   socket.emit("error", new Error("duplicate failure"));
   assert.deepEqual(lost, ["PROVIDER_UNREACHABLE"]);
-  assert.deepEqual(errors, ["PROVIDER_UNREACHABLE"]);
+  assert.deepEqual(errors, []);
   assert.equal(client.isConnected, false);
 });
 
@@ -262,10 +269,11 @@ test("auth errors and intentional stop never trigger meeting reconnect", async (
 });
 
 test("permanent active failures stop a meeting instead of accepting audio into a dead socket", async (t) => {
-  for (const code of ["auth_error", "quota_exceeded", "rate_limited", "invalid_request"]) {
+  for (const code of ["auth_error", "quota_exceeded", "invalid_request"]) {
     const { client, socket } = await ready(t);
     const fatal = [];
     client.onFatalError = (error) => fatal.push(error.code);
+    client.onError = () => assert.fail("the fatal callback already reports this error");
     client.onConnectionLost = () => assert.fail("permanent failures must not reconnect");
     socket.receive({ message_type: code });
     assert.equal(fatal.length, 1);
@@ -274,12 +282,71 @@ test("permanent active failures stop a meeting instead of accepting audio into a
   }
 });
 
-test("an explicit verbatim override omits no_verbatim on the actual socket", async (t) => {
-  const client = new ElevenLabsStreaming({ WebSocketImpl: Socket });
-  t.after(() => client.cleanup());
-  const connecting = client.connect({ apiKey: "test-only-key", noVerbatim: false });
-  const socket = Socket.instances.at(-1);
-  assert.equal(new URL(socket.url).searchParams.has("no_verbatim"), false);
-  socket.receive({ message_type: "session_started" });
-  await connecting;
+test("transient meeting failures request recovery without a second error notification", async (t) => {
+  for (const message_type of ["rate_limited", "commit_throttled", "error", "transcriber_error"]) {
+    const { client, socket } = await ready(t);
+    const lost = [];
+    client.onConnectionLost = (error) => lost.push(error);
+    client.onFatalError = () => assert.fail("transient failures must try reconnecting");
+    client.onError = () => assert.fail("recovery must not also report a toast");
+    socket.receive({ message_type });
+    assert.equal(lost.length, 1);
+  }
+});
+
+test("a rejected stop commit returns the provider error, without throwing or reporting twice", async (t) => {
+  for (const cause of ["closing", "backpressure", "send"]) {
+    const { client, socket } = await ready(t);
+    client.sendAudio(audio);
+    client.onError = () => assert.fail("disconnect already returns the error");
+    if (cause === "closing") socket.readyState = 2;
+    if (cause === "backpressure") socket.bufferedAmount = 160001;
+    if (cause === "send")
+      socket.send = () => {
+        throw new Error("send failed");
+      };
+    await assert.rejects(client.disconnect(), {
+      code: cause === "backpressure" ? "PROVIDER_UNAVAILABLE" : "PROVIDER_UNREACHABLE",
+    });
+  }
+});
+
+test("an empty final commit clears a filler partial and disarms the final timeout", async (t) => {
+  const { client, socket } = await ready(t, { finalTimeoutMs: 10 });
+  const partials = [];
+  client.onPartialTranscript = (text) => partials.push(text);
+  client.sendAudio(audio);
+  socket.receive({ message_type: "partial_transcript", text: "Um." });
+  const final = client.finalize();
+  socket.receive({ message_type: "committed_transcript", text: "" });
+  await final;
+  await new Promise((resolve) => setTimeout(resolve, 25));
+  assert.deepEqual(partials, ["Um.", ""]);
+  assert.equal(client.failure, null);
+  assert.deepEqual(await client.disconnect(), { text: "" });
+});
+
+test("meeting pauses commit before 20 seconds and stop waits for both the earlier turn and tail", async (t) => {
+  const { client, socket } = await ready(t, { commitOnSilence: true });
+  const finals = [];
+  client.onFinalTranscript = (text, timestamp) => finals.push({ text, timestamp });
+  client.sendAudio(Buffer.alloc(16000, 4)); // half a second of speech
+  client.sessionStartedAt = 100000;
+  client.sendAudio(Buffer.alloc(48000)); // 1.5 second pause
+  assert.equal(socket.sent.filter((m) => m.commit).length, 1);
+  client.sendAudio(audio);
+  let stopped = false;
+  const stop = client.disconnect().then((result) => {
+    stopped = true;
+    return result;
+  });
+  socket.receive({ message_type: "committed_transcript", text: "First turn." });
+  await Promise.resolve();
+  assert.equal(stopped, false);
+  socket.receive({ message_type: "committed_transcript", text: "Last words." });
+  assert.deepEqual(await stop, { text: "First turn. Last words." });
+  assert.deepEqual(finals, [
+    { text: "First turn.", timestamp: 100000 },
+    { text: "First turn. Last words.", timestamp: 102000 },
+  ]);
 });

@@ -648,13 +648,13 @@ test("ElevenLabs selects streaming only for BYOK Scribe Realtime with a key", as
   setSettings(settings);
   assert.equal(manager.shouldUseStreaming(), true);
   assert.equal(manager.getStreamingProviderName(), "elevenlabs");
-  const provider = manager.getStreamingProvider("elevenlabs");
-  assert.equal(provider.preferStopTranscript, true);
-  assert.equal(provider.awaitsFinalTranscript, true);
   setSettings({ ...settings, cloudTranscriptionModel: "scribe_v2" });
   assert.equal(manager.shouldUseStreaming(), false);
   setSettings({ ...settings, elevenlabsApiKey: "" });
   assert.equal(manager.shouldUseStreaming(), false);
   setSettings({ ...settings, cloudTranscriptionMode: "openwhispr" });
   assert.equal(manager.shouldUseStreaming(), false);
+  manager.sttConfig = { dictation: { mode: "streaming" }, streamingProvider: "assemblyai" };
+  assert.equal(manager.shouldUseStreaming(true), true);
+  assert.equal(manager.getStreamingProviderName(), "assemblyai");
 });
